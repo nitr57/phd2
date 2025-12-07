@@ -34,10 +34,14 @@
 
 #include "phd.h"
 #include "profile_wizard.h"
+#include "shm_camera_integration.h"
 
 #include <wx/gbsizer.h>
 #include <functional>
+#include <pthread.h>
 
+// Forward declaration for monitor thread
+static void* shm_monitor_thread_func(void* arg);
 // clang-format off
 wxBEGIN_EVENT_TABLE(GearDialog, wxDialog)
     EVT_CHOICE(GEAR_PROFILES, GearDialog::OnProfileChoice)
@@ -83,6 +87,7 @@ wxBEGIN_EVENT_TABLE(GearDialog, wxDialog)
     EVT_TOGGLEBUTTON(GEAR_BUTTON_DISCONNECT_ROTATOR, GearDialog::OnButtonDisconnectRotator)
 
     EVT_CHAR_HOOK(GearDialog::OnChar)
+    EVT_THREAD(wxID_ANY, GearDialog::OnSHMCameraSelectionChanged)
 wxEND_EVENT_TABLE();
 // clang-format on
 
@@ -121,7 +126,8 @@ wxEND_EVENT_TABLE();
 GearDialog::GearDialog(wxWindow *pParent)
     : wxDialog(pParent, wxID_ANY, _("Connect Equipment"), wxDefaultPosition, wxDefaultSize, wxCAPTION | wxCLOSE_BOX),
       m_cameraUpdated(false), m_mountUpdated(false), m_stepGuiderUpdated(false), m_rotatorUpdated(false),
-      m_showDarksDialog(false), m_camWarningIssued(false), m_camChanged(false), m_imageScaleRatio(1.0), m_flushConfig(false)
+      m_showDarksDialog(false), m_camWarningIssued(false), m_camChanged(false), m_imageScaleRatio(1.0), m_flushConfig(false),
+      m_shm_monitor_thread(0), m_shm_monitor_running(0)
 {
     m_pCamera = nullptr;
     m_pScope = nullptr;
@@ -155,6 +161,13 @@ GearDialog::GearDialog(wxWindow *pParent)
 
 GearDialog::~GearDialog()
 {
+    // Stop SHM monitor thread
+    m_shm_monitor_running = 0;
+    if (m_shm_monitor_thread != 0)
+    {
+        pthread_join(m_shm_monitor_thread, NULL);
+    }
+
     delete m_pCamera;
     delete m_pScope;
     if (m_pAuxScope != m_pScope)
@@ -455,6 +468,10 @@ void GearDialog::LoadGearChoices()
     LoadAOs(m_pStepGuiders);
     LoadRotators(m_pRotators);
 
+    // Update shared memory with available cameras
+    wxArrayString cameraList = GuideCamera::GuideCameraList();
+    CameraSHMManager::UpdateCameraList(cameraList);
+
     wxCommandEvent dummyEvent;
     m_lastCamera = pConfig->Profile.GetString("/camera/LastMenuChoice", _("None"));
     SetMatchingSelection(m_pCameras, m_lastCamera);
@@ -521,10 +538,20 @@ int GearDialog::ShowGearDialog(bool autoConnect)
         GetSizer()->Fit(this);
         CenterOnParent();
 
+        // Start monitor thread to listen for SHM changes
+        if (m_shm_monitor_thread == 0)
+        {
+            m_shm_monitor_running = 1;
+            pthread_create(&m_shm_monitor_thread, NULL, shm_monitor_thread_func, this);
+        }
+
         wxWindow *top = wxGetApp().GetTopWindow();
         wxGetApp().SetTopWindow(this);
         ret = wxDialog::ShowModal();
         wxGetApp().SetTopWindow(top);
+
+        // Stop monitor thread
+        m_shm_monitor_running = 0;
     }
     else
     {
@@ -950,6 +977,13 @@ void GearDialog::OnChoiceCamera(wxCommandEvent& event)
         {
             pConfig->Profile.SetString("/camera/LastMenuChoice", choice);
             m_flushConfig = true;
+        }
+
+        // Update shared memory with selected camera index
+        int selection = m_pCameras->GetSelection();
+        if (selection != wxNOT_FOUND)
+        {
+            CameraSHMManager::SetSelectedCamera(selection);
         }
 
         m_selectCameraButton->Enable(m_pCamera && m_pCamera->CanSelectCamera());
@@ -2314,4 +2348,49 @@ void GearDialog::OnAdvanced(wxCommandEvent& event)
 {
     UpdateAdvancedDialog(false);
     pFrame->OnAdvanced(event);
+}
+
+// Monitor thread for SHM camera selection changes
+static void* shm_monitor_thread_func(void* arg)
+{
+    GearDialog* dlg = (GearDialog*)arg;
+
+    while (dlg->m_shm_monitor_running)
+    {
+        // Wait for semaphore signal from external client
+        if (shm_camera_wait_client_request() == 0)
+        {
+            // Check if still running (in case we're shutting down)
+            if (!dlg->m_shm_monitor_running)
+                break;
+
+            // Get the new selected camera index from SHM
+            int new_index = CameraSHMManager::GetSelectedCamera();
+
+            if (new_index >= 0)
+            {
+                // Send event to main thread to update GUI
+                wxThreadEvent evt(wxEVT_THREAD);
+                evt.SetInt(new_index);
+                wxQueueEvent(dlg, evt.Clone());
+            }
+        }
+    }
+
+    return NULL;
+}
+
+void GearDialog::OnSHMCameraSelectionChanged(wxThreadEvent& event)
+{
+    int new_index = event.GetInt();
+
+    // Update the dropdown without triggering another SHM write
+    if (m_pCameras && new_index >= 0 && new_index < (int)m_pCameras->GetCount())
+    {
+        m_pCameras->SetSelection(new_index);
+        
+        // Also need to update the camera object
+        wxCommandEvent dummy;
+        OnChoiceCamera(dummy);
+    }
 }

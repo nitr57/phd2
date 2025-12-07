@@ -43,6 +43,7 @@
 #include "phdupdate.h"
 #include "pierflip_tool.h"
 #include "Refine_DefMap.h"
+#include "shm_camera_integration.h"
 
 #include <algorithm>
 #include <memory>
@@ -227,6 +228,9 @@ MyFrame::MyFrame()
 
     bool serverMode = pConfig->Global.GetBoolean("/ServerMode", DefaultServerMode);
     SetServerMode(serverMode);
+
+    // Initialize camera list shared memory
+    CameraSHMManager::Initialize();
 
     m_sampling = 1.0;
 
@@ -418,6 +422,9 @@ MyFrame::MyFrame()
 
 MyFrame::~MyFrame()
 {
+    // Shutdown camera list shared memory
+    CameraSHMManager::Shutdown();
+
     delete pGearDialog;
     pGearDialog = nullptr;
 

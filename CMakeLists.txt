@@ -466,6 +466,10 @@ set(phd2_SRC
   ${phd_src_dir}/sha1.h
   ${phd_src_dir}/socket_server.cpp
   ${phd_src_dir}/socket_server.h
+  ${phd_src_dir}/shm_camera.cpp
+  ${phd_src_dir}/shm_camera.h
+  ${phd_src_dir}/shm_camera_integration.cpp
+  ${phd_src_dir}/shm_camera_integration.h
   ${phd_src_dir}/starcross_test.cpp
   ${phd_src_dir}/starcross_test.h
   ${phd_src_dir}/staticpa_tool.h
@@ -826,7 +830,7 @@ elseif(UNIX)
 
   find_package( OpenCV REQUIRED )
 
-  target_link_libraries(phd2 X11 ${OpenCV_LIBS})
+  target_link_libraries(phd2 X11 ${OpenCV_LIBS} rt)
 
   set_target_properties(
     phd2
