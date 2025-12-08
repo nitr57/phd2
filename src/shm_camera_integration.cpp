@@ -117,6 +117,113 @@ int CameraSHMManager::GetSelectedCamera(void)
     return (int)index;
 }
 
+bool CameraSHMManager::SetSelectedCameraId(const wxString& camera_id)
+{
+    if (g_camera_shm == NULL)
+    {
+        Debug.Write("CameraSHMManager: SHM not initialized\n");
+        return false;
+    }
+
+    std::string id(camera_id.c_str());
+    int result = shm_camera_write_selected_id(id.c_str());
+
+    if (result != 0)
+    {
+        Debug.Write(wxString::Format("CameraSHMManager: Failed to set selected camera ID: %s\n", camera_id));
+        return false;
+    }
+
+    Debug.Write(wxString::Format("CameraSHMManager: Selected camera ID: %s\n", camera_id));
+    return true;
+}
+
+wxString CameraSHMManager::GetSelectedCameraId(void)
+{
+    if (g_camera_shm == NULL)
+    {
+        return wxEmptyString;
+    }
+
+    return wxString(g_camera_shm->selected_camera_id);
+}
+
+bool CameraSHMManager::CanSelectCamera(void)
+{
+    if (g_camera_shm == NULL)
+    {
+        return false;
+    }
+
+    return g_camera_shm->can_select_camera != 0;
+}
+
+bool CameraSHMManager::SetCanSelectCamera(bool can_select)
+{
+    if (g_camera_shm == NULL)
+    {
+        Debug.Write("CameraSHMManager: SHM not initialized\n");
+        return false;
+    }
+
+    g_camera_shm->can_select_camera = can_select ? 1 : 0;
+    Debug.Write(wxString::Format("CameraSHMManager: Set can_select_camera = %d\n", g_camera_shm->can_select_camera));
+    return true;
+}
+
+bool CameraSHMManager::UpdateCameraInstances(const wxArrayString& display_names, const wxArrayString& ids)
+{
+    if (g_camera_shm == NULL)
+    {
+        Debug.Write("CameraSHMManager: SHM not initialized\n");
+        return false;
+    }
+
+    size_t num_instances = display_names.Count();
+    if (num_instances > 64)  // MAX_CAMERA_INSTANCES
+        num_instances = 64;
+
+    CameraInstance instances[num_instances];
+    for (size_t i = 0; i < num_instances; i++)
+    {
+        strncpy(instances[i].display_name, display_names[i].c_str(), MAX_CAMERA_NAME_LEN - 1);
+        instances[i].display_name[MAX_CAMERA_NAME_LEN - 1] = '\0';
+
+        strncpy(instances[i].id, ids[i].c_str(), MAX_CAMERA_NAME_LEN - 1);
+        instances[i].id[MAX_CAMERA_NAME_LEN - 1] = '\0';
+    }
+
+    int result = shm_camera_update_instances(g_camera_shm, instances, (uint32_t)num_instances);
+
+    if (result != 0)
+    {
+        Debug.Write("CameraSHMManager: Failed to update camera instances\n");
+        return false;
+    }
+
+    Debug.Write(wxString::Format("CameraSHMManager: Updated camera instances with %zu instances (can_select=%u)\n", num_instances, g_camera_shm->can_select_camera));
+    return true;
+}
+
+int CameraSHMManager::GetCameraInstances(wxArrayString& display_names, wxArrayString& ids)
+{
+    if (g_camera_shm == NULL)
+    {
+        return 0;
+    }
+
+    display_names.Clear();
+    ids.Clear();
+
+    for (uint32_t i = 0; i < g_camera_shm->num_instances; i++)
+    {
+        display_names.Add(wxString(g_camera_shm->instances[i].display_name));
+        ids.Add(wxString(g_camera_shm->instances[i].id));
+    }
+
+    return (int)g_camera_shm->num_instances;
+}
+
 bool CameraSHMManager::HasSelectionChanged(void)
 {
     if (g_camera_shm == NULL)

@@ -38,6 +38,7 @@
 
 # include "cam_zwo.h"
 # include "ASICamera2.h"
+# include "camera_config_manager.h"
 
 # ifdef __WINDOWS__
 
@@ -117,6 +118,9 @@ Camera_ZWO::Camera_ZWO() : m_buffer(nullptr)
     m_defaultGainPct = GuideCamera::GetDefaultCameraGain();
     int value = pConfig->Profile.GetInt("/camera/ZWO/bpp", 8);
     m_bpp = value == 8 ? 8 : 16;
+    
+    // Publish initial bitdepth configuration to shared memory
+    CameraConfigManager::PublishOption("bitdepth", m_bpp, 8, 16);
 }
 
 Camera_ZWO::~Camera_ZWO()
@@ -182,6 +186,7 @@ void Camera_ZWO::ShowPropertyDialog()
     {
         m_bpp = dlg.m_bpp8->GetValue() ? 8 : 16;
         pConfig->Profile.SetInt("/camera/ZWO/bpp", m_bpp);
+        CameraConfigManager::PublishOption("bitdepth", m_bpp, 8, 16);
     }
 }
 

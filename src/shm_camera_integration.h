@@ -50,6 +50,48 @@ public:
     static int GetSelectedCamera(void);
 
     /**
+     * Set the selected camera ID/instance
+     * @param camera_id ID or instance identifier of the camera
+     * @return true on success, false on error
+     */
+    static bool SetSelectedCameraId(const wxString& camera_id);
+
+    /**
+     * Get the selected camera ID/instance from shared memory
+     * @return Camera ID string
+     */
+    static wxString GetSelectedCameraId(void);
+
+    /**
+     * Check if camera instance selection is available
+     * @return true if the current camera supports instance selection
+     */
+    static bool CanSelectCamera(void);
+    
+    /**
+     * Set the camera selection capability flag
+     * Call this when a camera is selected to indicate if it supports instance selection
+     * @param can_select true if camera supports selection, false otherwise
+     * @return true on success
+     */
+    static bool SetCanSelectCamera(bool can_select);
+
+    /**
+     * Update available camera instances in shared memory
+     * @param instances Array of available camera instances
+     * @return true on success, false on error
+     */
+    static bool UpdateCameraInstances(const wxArrayString& display_names, const wxArrayString& ids);
+
+    /**
+     * Get available camera instances from shared memory
+     * @param display_names Output array for display names
+     * @param ids Output array for instance IDs
+     * @return Number of instances read
+     */
+    static int GetCameraInstances(wxArrayString& display_names, wxArrayString& ids);
+
+    /**
      * Check if a camera selection change has occurred
      * Useful for polling to detect external changes
      * @return true if selection has changed since last check

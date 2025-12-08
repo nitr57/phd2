@@ -35,6 +35,9 @@
 #include "phd.h"
 #include "profile_wizard.h"
 #include "shm_camera_integration.h"
+#include "shm_camera.h"
+#include "shm_mount_integration.h"
+#include "camera_config_manager.h"
 
 #include <wx/gbsizer.h>
 #include <functional>
@@ -161,11 +164,13 @@ GearDialog::GearDialog(wxWindow *pParent)
 
 GearDialog::~GearDialog()
 {
-    // Stop SHM monitor thread
-    m_shm_monitor_running = 0;
+    // Stop SHM monitor thread (it should already be stopped in ShowGearDialog)
+    // but ensure it's stopped in case destructor is called without ShowModal
     if (m_shm_monitor_thread != 0)
     {
+        m_shm_monitor_running = 0;
         pthread_join(m_shm_monitor_thread, NULL);
+        m_shm_monitor_thread = 0;
     }
 
     delete m_pCamera;
@@ -472,6 +477,10 @@ void GearDialog::LoadGearChoices()
     wxArrayString cameraList = GuideCamera::GuideCameraList();
     CameraSHMManager::UpdateCameraList(cameraList);
 
+    // Update shared memory with available mounts
+    wxArrayString mountList = Scope::MountList();
+    MountSHMManager::UpdateMountList(mountList);
+
     wxCommandEvent dummyEvent;
     m_lastCamera = pConfig->Profile.GetString("/camera/LastMenuChoice", _("None"));
     SetMatchingSelection(m_pCameras, m_lastCamera);
@@ -550,8 +559,13 @@ int GearDialog::ShowGearDialog(bool autoConnect)
         ret = wxDialog::ShowModal();
         wxGetApp().SetTopWindow(top);
 
-        // Stop monitor thread
-        m_shm_monitor_running = 0;
+        // Stop and clean up monitor thread
+        if (m_shm_monitor_thread != 0)
+        {
+            m_shm_monitor_running = 0;
+            pthread_join(m_shm_monitor_thread, NULL);
+            m_shm_monitor_thread = 0;
+        }
     }
     else
     {
@@ -964,6 +978,10 @@ void GearDialog::OnChoiceCamera(wxCommandEvent& event)
     {
         wxString choice = m_pCameras->GetStringSelection();
 
+        // Clear shared memory options for the previous camera
+        // This prevents garbage data when switching to a camera with fewer options
+        CameraConfigManager::ClearOptions();
+
         delete m_pCamera;
         m_pCamera = nullptr;
 
@@ -987,6 +1005,44 @@ void GearDialog::OnChoiceCamera(wxCommandEvent& event)
         }
 
         m_selectCameraButton->Enable(m_pCamera && m_pCamera->CanSelectCamera());
+
+        // Update instances in shared memory (will also set can_select_camera flag)
+        wxArrayString names;
+        wxArrayString ids;
+        
+        if (m_pCamera && m_pCamera->CanSelectCamera())
+        {
+            // Camera supports instance selection - enumerate instances
+            m_cameraIds.clear();
+            bool error = m_pCamera->EnumCameras(names, m_cameraIds);
+            if (!error && names.size() > 0)
+            {
+                ids = m_cameraIds;
+            }
+        }
+        
+        // Always call UpdateCameraInstances to clear old data if needed
+        CameraSHMManager::UpdateCameraInstances(names, ids);
+        
+        // Restore the last selected instance ID from configuration
+        if (m_pCamera && m_pCamera->CanSelectCamera())
+        {
+            wxString key = CameraSelectionKey(m_lastCamera);
+            wxString saved_id = pConfig->Profile.GetString(key, wxEmptyString);
+            
+            if (!saved_id.IsEmpty())
+            {
+                // Restore saved ID
+                CameraSHMManager::SetSelectedCameraId(saved_id);
+                Debug.Write(wxString::Format("OnChoiceCamera: Restored selected camera ID from config: %s\n", saved_id));
+            }
+            else if (names.size() > 0)
+            {
+                // No saved ID - auto-select the first instance
+                CameraSHMManager::SetSelectedCameraId(ids[0]);
+                Debug.Write(wxString::Format("OnChoiceCamera: Auto-selected first instance: %s\n", ids[0]));
+            }
+        }
 
         if (!m_pCamera)
         {
@@ -1095,6 +1151,9 @@ void GearDialog::OnMenuSelectCamera(wxCommandEvent& event)
             pConfig->Profile.SetString(key, id);
             m_flushConfig = true;
         }
+
+        // Update shared memory with selected camera ID
+        CameraSHMManager::SetSelectedCameraId(id);
     }
 }
 
@@ -1135,6 +1194,27 @@ bool GearDialog::DoConnectCamera(bool autoReconnecting)
         Debug.Write(wxString::Format("Connecting to camera [%s] id = [%s]\n", newCam, cameraId));
 
         int profileBinning = m_pCamera->Binning;
+        
+        // Check for bitdepth config changes from SHM before connecting
+        // This applies to cameras that support bitdepth configuration
+        int new_bitdepth;
+        if (CameraConfigManager::GetUpdatedOption("bitdepth", &new_bitdepth)) {
+            Debug.Write(wxString::Format("Camera config: bitdepth updated to %d\n", new_bitdepth));
+            
+            // Apply only to the selected camera
+            if (newCam == _T("ToupTek Camera") || newCam == _T("Omegon Pro Camera")) {
+                pConfig->Profile.SetInt("/camera/ToupTek/bpp", new_bitdepth);
+            } else if (newCam == _T("Svbony Camera")) {
+                pConfig->Profile.SetInt("/camera/svb/bpp", new_bitdepth);
+            } else if (newCam == _T("Player One Camera")) {
+                pConfig->Profile.SetInt("/camera/POA/bpp", new_bitdepth);
+            } else if (newCam == _T("OGMA Camera")) {
+                pConfig->Profile.SetInt("/camera/ogma/bpp", new_bitdepth);
+            } else if (newCam == _T("ZWO ASI Camera")) {
+                pConfig->Profile.SetInt("/camera/ZWO/bpp", new_bitdepth);
+            }
+        }
+        
         if (GuideCamera::ConnectCamera(m_pCamera, cameraId))
         {
             throw THROW_INFO("DoConnectCamera: connect failed");
@@ -1362,6 +1442,13 @@ void GearDialog::OnChoiceScope(wxCommandEvent& event)
         }
 
         m_ascomScopeSelected = choice.Contains("ASCOM");
+
+        // Update shared memory with selected mount
+        if (m_pScopes)
+        {
+            int selection = m_pScopes->GetSelection();
+            MountSHMManager::SetSelectedMount(selection);
+        }
     }
     catch (const wxString& Msg)
     {
@@ -2350,14 +2437,15 @@ void GearDialog::OnAdvanced(wxCommandEvent& event)
     pFrame->OnAdvanced(event);
 }
 
-// Monitor thread for SHM camera selection changes
+// Monitor thread for SHM camera and mount selection changes
 static void* shm_monitor_thread_func(void* arg)
 {
     GearDialog* dlg = (GearDialog*)arg;
+    static wxString last_camera_id = wxEmptyString;
 
     while (dlg->m_shm_monitor_running)
     {
-        // Wait for semaphore signal from external client
+        // Wait for camera selection change
         if (shm_camera_wait_client_request() == 0)
         {
             // Check if still running (in case we're shutting down)
@@ -2372,8 +2460,62 @@ static void* shm_monitor_thread_func(void* arg)
                 // Send event to main thread to update GUI
                 wxThreadEvent evt(wxEVT_THREAD);
                 evt.SetInt(new_index);
+                evt.SetString(wxT("camera"));
                 wxQueueEvent(dlg, evt.Clone());
             }
+
+            // Also check if camera ID changed
+            wxString camera_id = CameraSHMManager::GetSelectedCameraId();
+            if (camera_id != last_camera_id)
+            {
+                last_camera_id = camera_id;
+                if (!camera_id.IsEmpty())
+                {
+                    // Send event to main thread to update camera instance
+                    wxThreadEvent evt(wxEVT_THREAD);
+                    evt.SetString(wxT("camera_id:") + camera_id);
+                    wxQueueEvent(dlg, evt.Clone());
+                }
+            }
+        }
+
+        // Also check for camera ID changes periodically (polling)
+        if (dlg->m_shm_monitor_running)
+        {
+            wxString camera_id = CameraSHMManager::GetSelectedCameraId();
+            if (camera_id != last_camera_id)
+            {
+                last_camera_id = camera_id;
+                if (!camera_id.IsEmpty())
+                {
+                    // Send event to main thread to update camera instance
+                    wxThreadEvent evt(wxEVT_THREAD);
+                    evt.SetString(wxT("camera_id:") + camera_id);
+                    wxQueueEvent(dlg, evt.Clone());
+                }
+            }
+        }
+
+        // Also check for mount selection changes (non-blocking with timeout)
+        // Note: This is a simple polling approach. A more efficient approach would use select()
+        if (dlg->m_shm_monitor_running)
+        {
+            int new_index = MountSHMManager::GetSelectedMount();
+            static int last_mount_index = -2; // Initialize to impossible value
+
+            if (new_index != last_mount_index)
+            {
+                last_mount_index = new_index;
+
+                // Send event to main thread to update GUI
+                wxThreadEvent evt(wxEVT_THREAD);
+                evt.SetInt(new_index);
+                evt.SetString(wxT("mount"));
+                wxQueueEvent(dlg, evt.Clone());
+            }
+
+            // Small sleep to prevent busy-waiting
+            usleep(100000); // 100ms
         }
     }
 
@@ -2383,14 +2525,88 @@ static void* shm_monitor_thread_func(void* arg)
 void GearDialog::OnSHMCameraSelectionChanged(wxThreadEvent& event)
 {
     int new_index = event.GetInt();
+    wxString type = event.GetString();
 
-    // Update the dropdown without triggering another SHM write
-    if (m_pCameras && new_index >= 0 && new_index < (int)m_pCameras->GetCount())
+    if (type == wxT("camera"))
     {
-        m_pCameras->SetSelection(new_index);
-        
-        // Also need to update the camera object
-        wxCommandEvent dummy;
-        OnChoiceCamera(dummy);
+        // Update the camera dropdown without triggering another SHM write
+        if (m_pCameras && new_index >= 0 && new_index < (int)m_pCameras->GetCount())
+        {
+            m_pCameras->SetSelection(new_index);
+
+            // Also need to update the camera object
+            wxCommandEvent dummy;
+            OnChoiceCamera(dummy);
+        }
     }
+    else if (type.StartsWith(wxT("camera_id:")))
+    {
+        // Handle camera instance ID selection from external client
+        wxString camera_id = type.Mid(10);  // Skip "camera_id:" prefix
+        
+        if (m_pCamera && m_pCamera->CanSelectCamera())
+        {
+            // Set the selected camera ID in the configuration
+            wxString key = CameraSelectionKey(m_lastCamera);
+            if (pConfig->Profile.GetString(key, wxEmptyString) != camera_id)
+            {
+                pConfig->Profile.SetString(key, camera_id);
+                m_flushConfig = true;
+            }
+            
+            // Reconnect to apply the new camera instance
+            // This will trigger the camera to reinitialize with the selected ID
+            wxCommandEvent dummy;
+            OnChoiceCamera(dummy);
+        }
+    }
+    else if (type == wxT("mount"))
+    {
+        // Update the mount dropdown without triggering another SHM write
+        if (m_pScopes && new_index >= 0 && new_index < (int)m_pScopes->GetCount())
+        {
+            m_pScopes->SetSelection(new_index);
+
+            // Also need to update the mount/scope object
+            wxCommandEvent dummy;
+            OnChoiceScope(dummy);
+        }
+        else if (new_index == -1 && m_pScopes)
+        {
+            // -1 means no selection
+            m_pScopes->SetSelection(wxNOT_FOUND);
+            wxCommandEvent dummy;
+            OnChoiceScope(dummy);
+        }
+    }
+}
+
+void GearDialog::ApplyBitdepthToSelectedCamera(int bitdepth)
+{
+    if (!m_pCameras) {
+        return;
+    }
+
+    wxString selectedCam = m_pCameras->GetStringSelection();
+    
+    // Apply only to the selected camera based on its name
+    if (selectedCam == _T("ToupTek Camera") || selectedCam == _T("Omegon Pro Camera")) {
+        pConfig->Profile.SetInt("/camera/ToupTek/bpp", bitdepth);
+        Debug.Write(wxString::Format("GearDialog: Applied bitdepth %d to ToupTek\n", bitdepth));
+    } else if (selectedCam == _T("Svbony Camera")) {
+        pConfig->Profile.SetInt("/camera/svb/bpp", bitdepth);
+        Debug.Write(wxString::Format("GearDialog: Applied bitdepth %d to Svbony\n", bitdepth));
+    } else if (selectedCam == _T("Player One Camera")) {
+        pConfig->Profile.SetInt("/camera/POA/bpp", bitdepth);
+        Debug.Write(wxString::Format("GearDialog: Applied bitdepth %d to Player One\n", bitdepth));
+    } else if (selectedCam == _T("OGMA Camera")) {
+        pConfig->Profile.SetInt("/camera/ogma/bpp", bitdepth);
+        Debug.Write(wxString::Format("GearDialog: Applied bitdepth %d to OGMA\n", bitdepth));
+    } else if (selectedCam == _T("ZWO ASI Camera")) {
+        pConfig->Profile.SetInt("/camera/ZWO/bpp", bitdepth);
+        Debug.Write(wxString::Format("GearDialog: Applied bitdepth %d to ZWO\n", bitdepth));
+    }
+    
+    // Update shared memory so external clients see the change
+    CameraConfigManager::PublishOption("bitdepth", bitdepth, 8, 16);
 }

@@ -1,12 +1,11 @@
 /*
- *  shm_camera.cpp
+ *  shm_camera.c
  *  PHD Guiding
  *
- *  POSIX Shared Memory implementation for camera list
+ *  POSIX Shared Memory implementation for camera list (pure C, no wxWidgets)
  *
  */
 
-#include "phd.h"
 #include "shm_camera.h"
 
 #include <sys/mman.h>
@@ -17,6 +16,7 @@
 #include <errno.h>
 #include <time.h>
 #include <semaphore.h>
+#include <stdio.h>
 
 // File descriptor for the shared memory object
 static int g_shm_fd = -1;
@@ -44,7 +44,7 @@ CameraListSHM* shm_camera_init(int create_if_missing)
     {
         if (!create_if_missing)
         {
-            Debug.Write(wxString::Format("shm_camera: Failed to open shared memory: %s\n", strerror(errno)));
+            fprintf(stderr, "shm_camera: Failed to open shared memory: %s\n", strerror(errno));
             return NULL;
         }
 
@@ -52,14 +52,14 @@ CameraListSHM* shm_camera_init(int create_if_missing)
         shm_fd = shm_open(PHD2_CAMERA_SHM_NAME, O_CREAT | O_RDWR, 0666);
         if (shm_fd == -1)
         {
-            Debug.Write(wxString::Format("shm_camera: Failed to create shared memory: %s\n", strerror(errno)));
+            fprintf(stderr, "shm_camera: Failed to create shared memory: %s\n", strerror(errno));
             return NULL;
         }
 
         // Set the size of the shared memory
         if (ftruncate(shm_fd, g_shm_size) == -1)
         {
-            Debug.Write(wxString::Format("shm_camera: Failed to set size: %s\n", strerror(errno)));
+            fprintf(stderr, "shm_camera: Failed to set size: %s\n", strerror(errno));
             close(shm_fd);
             shm_unlink(PHD2_CAMERA_SHM_NAME);
             return NULL;
@@ -73,7 +73,7 @@ CameraListSHM* shm_camera_init(int create_if_missing)
 
     if (ptr == MAP_FAILED)
     {
-        Debug.Write(wxString::Format("shm_camera: Failed to map shared memory: %s\n", strerror(errno)));
+        fprintf(stderr, "shm_camera: Failed to map shared memory: %s\n", strerror(errno));
         close(shm_fd);
         if (g_shm_owner)
         {
@@ -95,11 +95,11 @@ CameraListSHM* shm_camera_init(int create_if_missing)
         g_shm_ptr->timestamp = (uint32_t)time(NULL);
         g_shm_ptr->list_update_counter = 0;
         g_shm_ptr->selected_change_counter = 0;
-        Debug.Write("shm_camera: Created and initialized shared memory\n");
+        fprintf(stderr, "shm_camera: Created and initialized shared memory\n");
     }
     else
     {
-        Debug.Write("shm_camera: Opened existing shared memory\n");
+        fprintf(stderr, "shm_camera: Opened existing shared memory\n");
     }
 
     return g_shm_ptr;
@@ -122,7 +122,7 @@ void shm_camera_cleanup(CameraListSHM* shm, int unlink)
     if (unlink && g_shm_owner)
     {
         shm_unlink(PHD2_CAMERA_SHM_NAME);
-        Debug.Write("shm_camera: Unlinked shared memory\n");
+        fprintf(stderr, "shm_camera: Unlinked shared memory\n");
     }
 
     g_shm_owner = 0;
@@ -138,7 +138,7 @@ int shm_camera_update_list(CameraListSHM* shm, const char** cameras, uint32_t nu
 
     if (num_cameras > MAX_CAMERAS_SHM)
     {
-        Debug.Write(wxString::Format("shm_camera: Too many cameras (%u > %d)\n", num_cameras, MAX_CAMERAS_SHM));
+        fprintf(stderr, "shm_camera: Too many cameras (%u > %d)\n", num_cameras, MAX_CAMERAS_SHM);
         return -1;
     }
 
@@ -153,7 +153,7 @@ int shm_camera_update_list(CameraListSHM* shm, const char** cameras, uint32_t nu
         size_t len = strlen(cameras[i]);
         if (len >= MAX_CAMERA_NAME_LEN)
         {
-            Debug.Write(wxString::Format("shm_camera: Camera name too long: %s\n", cameras[i]));
+            fprintf(stderr, "shm_camera: Camera name too long: %s\n", cameras[i]);
             len = MAX_CAMERA_NAME_LEN - 1;
         }
 
@@ -191,7 +191,7 @@ int shm_camera_set_selected(CameraListSHM* shm, uint32_t index)
     // Validate index
     if (index != INVALID_CAMERA_INDEX && index >= g_shm_ptr->num_cameras)
     {
-        Debug.Write(wxString::Format("shm_camera: Invalid camera index: %u (max: %u)\n", index, g_shm_ptr->num_cameras - 1));
+        fprintf(stderr, "shm_camera: Invalid camera index: %u (max: %u)\n", index, g_shm_ptr->num_cameras - 1);
         return -1;
     }
 
@@ -200,6 +200,9 @@ int shm_camera_set_selected(CameraListSHM* shm, uint32_t index)
         g_shm_ptr->selected_camera_index = index;
         g_shm_ptr->selected_change_counter++;
         g_shm_ptr->timestamp = (uint32_t)time(NULL);
+        
+        // Don't clear selected_camera_id here - let PHD2 handle that
+        // when it updates instances for the new camera
     }
 
     return 0;
@@ -264,7 +267,7 @@ int shm_camera_write_selected(uint32_t index)
 
     if (shm_fd == -1)
     {
-        Debug.Write(wxString::Format("shm_camera: Failed to open shared memory for writing: %s\n", strerror(errno)));
+        fprintf(stderr, "shm_camera: Failed to open shared memory for writing: %s\n", strerror(errno));
         return -1;
     }
 
@@ -275,7 +278,7 @@ int shm_camera_write_selected(uint32_t index)
 
     if (ptr == MAP_FAILED)
     {
-        Debug.Write(wxString::Format("shm_camera: Failed to map shared memory for writing: %s\n", strerror(errno)));
+        fprintf(stderr, "shm_camera: Failed to map shared memory for writing: %s\n", strerror(errno));
         close(shm_fd);
         return -1;
     }
@@ -285,7 +288,7 @@ int shm_camera_write_selected(uint32_t index)
     // Validate index
     if (index != INVALID_CAMERA_INDEX && index >= shm->num_cameras)
     {
-        Debug.Write(wxString::Format("shm_camera: Invalid camera index: %u (max: %u)\n", index, shm->num_cameras - 1));
+        fprintf(stderr, "shm_camera: Invalid camera index: %u (max: %u)\n", index, shm->num_cameras - 1);
         munmap(shm, shm_size);
         close(shm_fd);
         return -1;
@@ -318,7 +321,7 @@ const CameraListSHM* shm_camera_get_readonly(void)
 
     if (shm_fd == -1)
     {
-        Debug.Write(wxString::Format("shm_camera: Failed to open shared memory for reading: %s\n", strerror(errno)));
+        fprintf(stderr, "shm_camera: Failed to open shared memory for reading: %s\n", strerror(errno));
         return NULL;
     }
 
@@ -329,7 +332,7 @@ const CameraListSHM* shm_camera_get_readonly(void)
 
     if (ptr == MAP_FAILED)
     {
-        Debug.Write(wxString::Format("shm_camera: Failed to map shared memory for reading: %s\n", strerror(errno)));
+        fprintf(stderr, "shm_camera: Failed to map shared memory for reading: %s\n", strerror(errno));
         close(shm_fd);
         return NULL;
     }
@@ -412,7 +415,117 @@ int shm_camera_wait_client_request(void)
         return -1;
     }
 
-    int result = sem_wait(sem);
+    // Use timed wait with 1 second timeout to allow thread to check for shutdown
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec += 1;  // 1 second timeout
+
+    int result = sem_timedwait(sem, &ts);
     sem_close(sem);
     return result;
 }
+
+int shm_camera_read_selected_id(char* camera_id, int max_len)
+{
+    const CameraListSHM* shm = shm_camera_get_readonly();
+
+    if (shm == NULL)
+    {
+        return -1;
+    }
+
+    strncpy(camera_id, shm->selected_camera_id, max_len - 1);
+    camera_id[max_len - 1] = '\0';
+    shm_camera_release_readonly(shm);
+
+    return 0;
+}
+
+int shm_camera_write_selected_id(const char* camera_id)
+{
+    CameraListSHM* shm = shm_camera_init(0);
+
+    if (shm == NULL)
+    {
+        return -1;
+    }
+
+    strncpy(shm->selected_camera_id, camera_id, MAX_CAMERA_NAME_LEN - 1);
+    shm->selected_camera_id[MAX_CAMERA_NAME_LEN - 1] = '\0';
+    shm->selected_change_counter++;
+    shm->timestamp = (uint32_t)time(NULL);
+
+    return 0;
+}
+
+int shm_camera_update_instances(CameraListSHM* shm, const CameraInstance* instances, uint32_t num_instances)
+{
+    if (shm == NULL)
+        return -1;
+
+    if (num_instances > MAX_CAMERA_INSTANCES)
+        num_instances = MAX_CAMERA_INSTANCES;
+
+    // Always clear all old instances first
+    memset(shm->instances, 0, sizeof(shm->instances));
+    shm->num_instances = 0;
+    
+    // Copy new instances only if we have any
+    if (num_instances > 0 && instances != NULL)
+    {
+        for (uint32_t i = 0; i < num_instances; i++)
+        {
+            shm->instances[i] = instances[i];
+        }
+        shm->num_instances = num_instances;
+        shm->can_select_camera = 1;  // Set flag only if we have actual instances
+    }
+    else
+    {
+        // No instances - clear the flag and selected ID
+        shm->can_select_camera = 0;
+        memset(shm->selected_camera_id, 0, sizeof(shm->selected_camera_id));
+    }
+    
+    shm->timestamp = (uint32_t)time(NULL);
+    return 0;
+}
+
+int shm_camera_read_instances(CameraInstance* instances, uint32_t max_instances)
+{
+    const CameraListSHM* shm = shm_camera_get_readonly();
+
+    if (shm == NULL)
+    {
+        return -1;
+    }
+
+    uint32_t count = shm->num_instances;
+    if (count > max_instances)
+        count = max_instances;
+
+    for (uint32_t i = 0; i < count; i++)
+    {
+        instances[i] = shm->instances[i];
+    }
+
+    shm_camera_release_readonly(shm);
+
+    return (int)count;
+}
+
+int shm_camera_can_select_camera(void)
+{
+    const CameraListSHM* shm = shm_camera_get_readonly();
+
+    if (shm == NULL)
+    {
+        return -1;
+    }
+
+    int result = shm->can_select_camera ? 1 : 0;
+    shm_camera_release_readonly(shm);
+
+    return result;
+}
+

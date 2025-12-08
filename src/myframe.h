@@ -188,8 +188,6 @@ protected:
     int GetTimeLapse() const;
     int GetExposureDelay();
 
-    bool SetFocalLength(int focalLength);
-
     friend class MyFrameConfigDialogPane;
     friend class MyFrameConfigDialogCtrlSet;
     friend class WorkerThread;
@@ -382,6 +380,7 @@ public:
     bool FlipCalibrationData();
     int RequestedExposureDuration();
     int GetFocalLength() const;
+    bool SetFocalLength(int focalLength);
     bool GetAutoLoadCalibration() const;
     void SetAutoLoadCalibration(bool val);
     void LoadCalibration();

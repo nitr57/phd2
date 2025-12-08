@@ -24,7 +24,10 @@
 #define PHD2_CAMERA_SEM_CLIENT_REQUEST "/phd2_cam_client_request"
 // Version for compatibility checking
 #define PHD2_CAMERA_SHM_VERSION 1
-// Invalid camera index
+// Maximum number of camera instances for a single camera type
+#define MAX_CAMERA_INSTANCES 64
+
+// Invalid camera instance index
 #define INVALID_CAMERA_INDEX 0xFFFFFFFF
 
 #pragma pack(push, 1)
@@ -37,6 +40,14 @@ typedef struct {
 } CameraEntry;
 
 /**
+ * Structure representing a camera instance (e.g., specific USB camera connected)
+ */
+typedef struct {
+    char id[MAX_CAMERA_NAME_LEN];      // Instance ID (e.g., serial number)
+    char display_name[MAX_CAMERA_NAME_LEN];  // Human-readable name
+} CameraInstance;
+
+/**
  * Main shared memory structure containing camera list and selected camera
  * This structure is mapped into POSIX shared memory for inter-process communication
  */
@@ -47,7 +58,11 @@ typedef struct {
     uint32_t timestamp;                 // Timestamp of last update (seconds)
     uint32_t list_update_counter;       // Counter incremented when camera list changes
     uint32_t selected_change_counter;   // Counter incremented when selected camera changes
-    uint8_t reserved[40];               // Reserved for future expansion
+    char selected_camera_id[MAX_CAMERA_NAME_LEN];  // ID/instance of selected camera (e.g., serial number)
+    uint32_t num_instances;             // Number of available instances for selected camera
+    uint32_t can_select_camera;         // Whether instance selection is available (1=yes, 0=no)
+    CameraInstance instances[MAX_CAMERA_INSTANCES];  // Available camera instances
+    uint8_t reserved[36];               // Reserved for future expansion (reduced from 40 due to can_select_camera field)
     CameraEntry cameras[MAX_CAMERAS_SHM];
 } CameraListSHM;
 
@@ -129,6 +144,44 @@ const CameraListSHM* shm_camera_get_readonly(void);
  * Release read-only access to shared memory
  */
 void shm_camera_release_readonly(const CameraListSHM* shm);
+
+/**
+ * Read selected camera ID from shared memory (for external processes)
+ * @param camera_id Output buffer to store camera ID
+ * @param max_len Maximum length to read
+ * @return 0 on success, -1 on error
+ */
+int shm_camera_read_selected_id(char* camera_id, int max_len);
+
+/**
+ * Write selected camera ID to shared memory (for external processes)
+ * @param camera_id Camera ID to set
+ * @return 0 on success, -1 on error
+ */
+int shm_camera_write_selected_id(const char* camera_id);
+
+/**
+ * Update available camera instances for the currently selected camera type
+ * @param shm Pointer to shared memory structure
+ * @param instances Array of camera instances
+ * @param num_instances Number of instances
+ * @return 0 on success, -1 on error
+ */
+int shm_camera_update_instances(CameraListSHM* shm, const CameraInstance* instances, uint32_t num_instances);
+
+/**
+ * Read available camera instances from shared memory (for external processes)
+ * @param instances Output array to store instances
+ * @param max_instances Maximum number of instances to read
+ * @return Number of instances read, or -1 on error
+ */
+int shm_camera_read_instances(CameraInstance* instances, uint32_t max_instances);
+
+/**
+ * Check if instance selection is available for current camera
+ * @return 1 if instance selection is available, 0 if not, -1 on error
+ */
+int shm_camera_can_select_camera(void);
 
 /**
  * Signal that camera list has changed (called by PHD2)
