@@ -1,0 +1,260 @@
+/*
+ *  Created by Nico Trost.
+ *  Copyright (c) 2025-2025 Nico Trost.
+ *  All rights reserved.
+ *
+ *  This source code is distributed under the following "BSD" license
+ *  Redistribution and use in source and binary forms, with or without
+ *  modification, are permitted provided that the following conditions are met:
+ *    Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *    Redistributions in binary form must reproduce the above copyright notice,
+ *     this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *    Neither the name of Nico Trost nor the names of its
+ *     contributors may be used to endorse or promote products derived from
+ *     this software without specific prior written permission.
+ *
+ *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ *  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ *  IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ *  ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ *  LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ *  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ *  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ *  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ *  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ *  POSSIBILITY OF SUCH DAMAGE.
+ *
+ */
+
+/*
+ *  shm_camera.h
+ *  PHD Guiding
+ *
+ *  POSIX Shared Memory interface for camera list
+ *  Allows other processes to read available cameras and change the selected camera
+ *
+ */
+
+#ifndef SHM_CAMERA_H_INCLUDED
+#define SHM_CAMERA_H_INCLUDED
+
+#include <stdint.h>
+
+// Maximum number of cameras that can be shared
+#define MAX_CAMERAS_SHM 64
+// Maximum length of camera name
+#define MAX_CAMERA_NAME_LEN 256
+// Shared memory segment name
+#define PHD2_CAMERA_SHM_NAME "/phd2_cameras"
+// POSIX semaphore names for event signaling
+#define PHD2_CAMERA_SEM_LIST_CHANGED "/phd2_cam_list_changed"
+#define PHD2_CAMERA_SEM_SELECTED_CHANGED "/phd2_cam_selected_changed"
+#define PHD2_CAMERA_SEM_CLIENT_REQUEST "/phd2_cam_client_request"
+// Version for compatibility checking
+#define PHD2_CAMERA_SHM_VERSION 1
+// Maximum number of camera instances for a single camera type
+#define MAX_CAMERA_INSTANCES 64
+
+// Invalid camera instance index
+#define INVALID_CAMERA_INDEX 0xFFFFFFFF
+
+#pragma pack(push, 1)
+
+/**
+ * Structure representing a single camera entry in shared memory
+ */
+typedef struct {
+    char name[MAX_CAMERA_NAME_LEN];  // Camera name/identifier
+} CameraEntry;
+
+/**
+ * Structure representing a camera instance (e.g., specific USB camera connected)
+ */
+typedef struct {
+    char id[MAX_CAMERA_NAME_LEN];      // Instance ID (e.g., serial number)
+    char display_name[MAX_CAMERA_NAME_LEN];  // Human-readable name
+} CameraInstance;
+
+/**
+ * Main shared memory structure containing camera list and selected camera
+ * This structure is mapped into POSIX shared memory for inter-process communication
+ */
+typedef struct {
+    uint32_t version;                   // Version of this structure
+    uint32_t num_cameras;               // Number of cameras currently available
+    uint32_t selected_camera_index;     // Index of currently selected camera (INVALID_CAMERA_INDEX = none)
+    uint32_t timestamp;                 // Timestamp of last update (seconds)
+    uint32_t list_update_counter;       // Counter incremented when camera list changes
+    uint32_t selected_change_counter;   // Counter incremented when selected camera changes
+    char selected_camera_id[MAX_CAMERA_NAME_LEN];  // ID/instance of selected camera (e.g., serial number)
+    uint32_t num_instances;             // Number of available instances for selected camera
+    uint32_t can_select_camera;         // Whether instance selection is available (1=yes, 0=no)
+    CameraInstance instances[MAX_CAMERA_INSTANCES];  // Available camera instances
+    uint8_t reserved[36];               // Reserved for future expansion (reduced from 40 due to can_select_camera field)
+    CameraEntry cameras[MAX_CAMERAS_SHM];
+} CameraListSHM;
+
+#pragma pack(pop)
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * Initialize shared memory for camera list
+ * Should be called by PHD2 process to create/open SHM
+ * @param create_if_missing If true, create SHM if it doesn't exist
+ * @return Pointer to shared memory structure, or NULL on error
+ */
+CameraListSHM* shm_camera_init(int create_if_missing);
+
+/**
+ * Cleanup shared memory resources
+ * Should be called when exiting
+ * @param shm Pointer to shared memory structure
+ * @param unlink If true, unlink (delete) the shared memory
+ */
+void shm_camera_cleanup(CameraListSHM* shm, int unlink);
+
+/**
+ * Update the camera list in shared memory
+ * @param shm Pointer to shared memory structure
+ * @param cameras Array of camera names
+ * @param num_cameras Number of cameras in array
+ * @return 0 on success, -1 on error
+ */
+int shm_camera_update_list(CameraListSHM* shm, const char** cameras, uint32_t num_cameras);
+
+/**
+ * Set the selected camera index
+ * @param shm Pointer to shared memory structure
+ * @param index Index of camera to select (INVALID_CAMERA_INDEX to deselect)
+ * @return 0 on success, -1 on error (invalid index)
+ */
+int shm_camera_set_selected(CameraListSHM* shm, uint32_t index);
+
+/**
+ * Get the selected camera index
+ * @param shm Pointer to shared memory structure
+ * @return Selected camera index, or INVALID_CAMERA_INDEX if none selected
+ */
+uint32_t shm_camera_get_selected(const CameraListSHM* shm);
+
+/**
+ * Read camera list from shared memory (for external processes)
+ * @param cameras Output array to store camera names
+ * @param max_cameras Maximum number of cameras to read
+ * @return Number of cameras read, or -1 on error
+ */
+int shm_camera_read_list(char cameras[][MAX_CAMERA_NAME_LEN], uint32_t max_cameras);
+
+/**
+ * Read selected camera index from shared memory (for external processes)
+ * @param selected_index Output pointer to store selected camera index
+ * @return 0 on success, -1 on error
+ */
+int shm_camera_read_selected(uint32_t* selected_index);
+
+/**
+ * Write selected camera index to shared memory (for external processes)
+ * @param index Index of camera to select
+ * @return 0 on success, -1 on error
+ */
+int shm_camera_write_selected(uint32_t index);
+
+/**
+ * Get the shared memory structure for read-only access
+ * @return Pointer to shared memory structure, or NULL on error
+ */
+const CameraListSHM* shm_camera_get_readonly(void);
+
+/**
+ * Release read-only access to shared memory
+ */
+void shm_camera_release_readonly(const CameraListSHM* shm);
+
+/**
+ * Read selected camera ID from shared memory (for external processes)
+ * @param camera_id Output buffer to store camera ID
+ * @param max_len Maximum length to read
+ * @return 0 on success, -1 on error
+ */
+int shm_camera_read_selected_id(char* camera_id, int max_len);
+
+/**
+ * Write selected camera ID to shared memory (for external processes)
+ * @param camera_id Camera ID to set
+ * @return 0 on success, -1 on error
+ */
+int shm_camera_write_selected_id(const char* camera_id);
+
+/**
+ * Update available camera instances for the currently selected camera type
+ * @param shm Pointer to shared memory structure
+ * @param instances Array of camera instances
+ * @param num_instances Number of instances
+ * @return 0 on success, -1 on error
+ */
+int shm_camera_update_instances(CameraListSHM* shm, const CameraInstance* instances, uint32_t num_instances);
+
+/**
+ * Read available camera instances from shared memory (for external processes)
+ * @param instances Output array to store instances
+ * @param max_instances Maximum number of instances to read
+ * @return Number of instances read, or -1 on error
+ */
+int shm_camera_read_instances(CameraInstance* instances, uint32_t max_instances);
+
+/**
+ * Check if instance selection is available for current camera
+ * @return 1 if instance selection is available, 0 if not, -1 on error
+ */
+int shm_camera_can_select_camera(void);
+
+/**
+ * Signal that camera list has changed (called by PHD2)
+ * Notifies all waiting clients
+ */
+void shm_camera_signal_list_changed(void);
+
+/**
+ * Signal that selected camera has changed (called by PHD2)
+ * Notifies all waiting clients
+ */
+void shm_camera_signal_selected_changed(void);
+
+/**
+ * Wait for camera list change notification (called by clients)
+ * Blocks until list changes
+ * @return 0 on success, -1 on error
+ */
+int shm_camera_wait_list_changed(void);
+
+/**
+ * Wait for selected camera change notification (called by clients)
+ * Blocks until selected camera changes
+ * @return 0 on success, -1 on error
+ */
+int shm_camera_wait_selected_changed(void);
+
+/**
+ * Signal PHD2 that client has requested a change (called by clients)
+ * Use this after writing a new selected camera index to SHM
+ */
+void shm_camera_signal_client_request(void);
+
+/**
+ * Wait for client request (called by PHD2)
+ * Blocks until a client signals a request
+ * @return 0 on success, -1 on error
+ */
+int shm_camera_wait_client_request(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // SHM_CAMERA_H_INCLUDED

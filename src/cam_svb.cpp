@@ -35,6 +35,7 @@
 #ifdef SVB_CAMERA
 
 # include "cam_svb.h"
+# include "camera_config_manager.h"
 # include "SVBCameraSDK.h"
 
 # ifdef __WINDOWS__
@@ -101,6 +102,9 @@ SVBCamera::SVBCamera() : m_buffer(nullptr)
     m_defaultGainPct = GuideCamera::GetDefaultCameraGain();
     int value = pConfig->Profile.GetInt("/camera/svb/bpp", 16);
     m_bpp = value == 8 ? 8 : 16;
+    
+    // Publish initial bitdepth configuration to shared memory
+    CameraConfigManager::PublishOption("bitdepth", m_bpp, 8, 16);
 }
 
 SVBCamera::~SVBCamera()
@@ -160,6 +164,7 @@ void SVBCamera::ShowPropertyDialog()
     {
         m_bpp = dlg.m_bpp8->GetValue() ? 8 : 16;
         pConfig->Profile.SetInt("/camera/svb/bpp", m_bpp);
+        CameraConfigManager::PublishOption("bitdepth", m_bpp, 8, 16);
     }
 }
 

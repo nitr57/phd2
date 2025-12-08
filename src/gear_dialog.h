@@ -93,6 +93,9 @@ class GearDialog : public wxDialog
     bool m_flushConfig;
 
 public:
+    // Camera SHM monitoring via semaphore (public for thread access)
+    pthread_t m_shm_monitor_thread;
+    volatile int m_shm_monitor_running;
     GearDialog(wxWindow *pParent);
     ~GearDialog();
 
@@ -111,6 +114,7 @@ public:
     Scope *AuxScope() const;
     wxString SelectedCameraId() const;
     static wxString CameraSelectionKey(const wxString& camName);
+    void ApplyBitdepthToSelectedCamera(int bitdepth);
 
 private:
     void LoadGearChoices();
@@ -172,6 +176,8 @@ private:
     void OnButtonDisconnectRotator(wxCommandEvent& event);
 
     void OnButtonWizard(wxCommandEvent& event);
+
+    void OnSHMCameraSelectionChanged(wxThreadEvent& event);
 
     wxDECLARE_EVENT_TABLE();
 };

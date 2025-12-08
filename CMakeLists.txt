@@ -144,6 +144,9 @@ generate_doc_targets(
 # PEC Guider, Max Planck Institute for Intelligent Systems, Tuebingen, Germany.
 add_subdirectory(contributions/MPI_IS_gaussian_process tmp_gaussian_process)
 
+# SHM Guider Library - shared memory equipment communication (camera, mount, etc) with external clients
+add_subdirectory(shm_guider_lib)
+
 
 
 #################################################################################
@@ -466,6 +469,16 @@ set(phd2_SRC
   ${phd_src_dir}/sha1.h
   ${phd_src_dir}/socket_server.cpp
   ${phd_src_dir}/socket_server.h
+  ${phd_src_dir}/camera_config_monitor.cpp
+  ${phd_src_dir}/camera_config_monitor.h
+  ${phd_src_dir}/camera_config_manager.cpp
+  ${phd_src_dir}/camera_config_manager.h
+  ${phd_src_dir}/shm_camera_integration.cpp
+  ${phd_src_dir}/shm_camera_integration.h
+  ${phd_src_dir}/shm_mount_integration.cpp
+  ${phd_src_dir}/shm_mount_integration.h
+  ${phd_src_dir}/shm_monitor.cpp
+  ${phd_src_dir}/shm_monitor.h
   ${phd_src_dir}/starcross_test.cpp
   ${phd_src_dir}/starcross_test.h
   ${phd_src_dir}/staticpa_tool.h
@@ -826,7 +839,7 @@ elseif(UNIX)
 
   find_package( OpenCV REQUIRED )
 
-  target_link_libraries(phd2 X11 ${OpenCV_LIBS})
+  target_link_libraries(phd2 X11 ${OpenCV_LIBS} rt)
 
   set_target_properties(
     phd2
@@ -850,6 +863,7 @@ if(APPLE)
   target_compile_options(phd2 PRIVATE "-Wno-inconsistent-missing-override")
 endif()
 target_include_directories(phd2 PRIVATE ${wxWidgets_INCLUDE_DIRS})
+target_include_directories(phd2 PRIVATE ${PHD_PROJECT_ROOT_DIR}/shm_guider_lib)
 
 foreach(lib ${PHD_LINK_EXTERNAL_DEBUG})
   target_link_libraries(phd2 debug ${lib})
@@ -861,6 +875,7 @@ endforeach()
 
 target_link_libraries(phd2
                       MPIIS_GP GPGuider # GP Guider
+                      shm_guider # SHM Guider Library
                       ${PHD_LINK_EXTERNAL})
 
 ################################################################

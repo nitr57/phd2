@@ -39,6 +39,7 @@
 # include "cam_touptek.h"
 # include "toupcam.h"
 # include "image_math.h"
+# include "camera_config_manager.h"
 
 // Touptek API uses these Windows definitions even on non-Windows platforms
 # ifndef S_OK
@@ -281,6 +282,9 @@ CameraToupTek::CameraToupTek()
     int value = pConfig->Profile.GetInt("/camera/ToupTek/bpp", 8);
     m_cam.m_bpp = value == 8 ? 8 : 16;
     MaxBinning = 4;
+    
+    // Publish initial bitdepth configuration to shared memory
+    CameraConfigManager::PublishOption("bitdepth", m_cam.m_bpp, 8, 16);
 }
 
 CameraToupTek::~CameraToupTek() { }
@@ -824,6 +828,7 @@ void CameraToupTek::ShowPropertyDialog()
     {
         m_cam.m_bpp = dlg.m_bpp8->GetValue() ? 8 : 16;
         pConfig->Profile.SetInt("/camera/ToupTek/bpp", m_cam.m_bpp);
+        CameraConfigManager::PublishOption("bitdepth", m_cam.m_bpp, 8, 16);
     }
 }
 

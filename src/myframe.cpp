@@ -43,6 +43,11 @@
 #include "phdupdate.h"
 #include "pierflip_tool.h"
 #include "Refine_DefMap.h"
+#include "shm_camera_integration.h"
+#include "shm_mount_integration.h"
+#include "shm_monitor.h"
+#include "camera_config_manager.h"
+#include "camera_config_monitor.h"
 
 #include <algorithm>
 #include <memory>
@@ -227,6 +232,29 @@ MyFrame::MyFrame()
 
     bool serverMode = pConfig->Global.GetBoolean("/ServerMode", DefaultServerMode);
     SetServerMode(serverMode);
+
+    // Initialize camera list shared memory
+    CameraSHMManager::Initialize();
+    
+    // Initialize mount list shared memory
+    MountSHMManager::Initialize();
+    
+    // Start global SHM monitor thread for headless mode support
+    SHMMonitor::Start();
+    
+    // Initialize camera configuration shared memory
+    CameraConfigManager::Initialize();
+    
+    // Register callback for bitdepth changes from external clients
+    // This callback is called on the main thread when bitdepth changes via SHM
+    CameraConfigMonitor::SetBitdepthChangeCallback([this](int new_bitdepth) {
+        if (pGearDialog) {
+            pGearDialog->ApplyBitdepthToSelectedCamera(new_bitdepth);
+        }
+    });
+    
+    // Start monitor thread for immediate config changes
+    CameraConfigMonitor::Start();
 
     m_sampling = 1.0;
 
@@ -418,6 +446,15 @@ MyFrame::MyFrame()
 
 MyFrame::~MyFrame()
 {
+    // Stop global SHM monitor thread
+    SHMMonitor::Stop();
+    
+    // Shutdown camera list shared memory
+    CameraSHMManager::Shutdown();
+    
+    // Shutdown mount list shared memory
+    MountSHMManager::Shutdown();
+
     delete pGearDialog;
     pGearDialog = nullptr;
 

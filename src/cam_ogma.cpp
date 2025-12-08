@@ -38,6 +38,7 @@
 
 # include "cam_ogma.h"
 # include "ogmacam.h"
+# include "camera_config_manager.h"
 
 // Touptek API uses these Windows definitions even on non-Windows platforms
 # ifndef S_OK
@@ -280,6 +281,9 @@ CameraOgma::CameraOgma()
     int value = pConfig->Profile.GetInt("/camera/ogma/bpp", 8);
     m_cam.m_bpp = value == 8 ? 8 : 16;
     MaxBinning = 4;
+    
+    // Publish initial bitdepth configuration to shared memory
+    CameraConfigManager::PublishOption("bitdepth", m_cam.m_bpp, 8, 16);
 }
 
 CameraOgma::~CameraOgma() { }
@@ -816,6 +820,7 @@ void CameraOgma::ShowPropertyDialog()
     {
         m_cam.m_bpp = dlg.m_bpp8->GetValue() ? 8 : 16;
         pConfig->Profile.SetInt("/camera/ogma/bpp", m_cam.m_bpp);
+        CameraConfigManager::PublishOption("bitdepth", m_cam.m_bpp, 8, 16);
     }
 }
 

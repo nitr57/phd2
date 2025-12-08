@@ -1025,6 +1025,710 @@ static void get_pixel_scale(JObj& response, const json_value *params)
         response << jrpc_result(scale);
 }
 
+static void get_focal_length(JObj& response, const json_value *params)
+{
+    int focalLength = pFrame->GetFocalLength();
+    if (focalLength == 0)
+        response << jrpc_result(NULL_VALUE); // focal length not set
+    else
+        response << jrpc_result(focalLength);
+}
+
+static void set_focal_length(JObj& response, const json_value *params)
+{
+    Params p("focal_length", params);
+    const json_value *fl = p.param("focal_length");
+
+    if (!fl || fl->type != JSON_INT)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected focal_length param");
+        return;
+    }
+
+    bool ok = !pFrame->SetFocalLength(fl->int_value);
+    if (ok)
+    {
+        response << jrpc_result(0);
+    }
+    else
+    {
+        response << jrpc_error(1, "could not set focal length");
+    }
+}
+
+static void get_calibration_step(JObj& response, const json_value *params)
+{
+    Scope *scope = TheScope();
+    if (scope)
+        response << jrpc_result(scope->GetCalibrationDuration());
+    else
+        response << jrpc_error(1, "scope not available");
+}
+
+static void set_calibration_step(JObj& response, const json_value *params)
+{
+    Params p("calibration_step", params);
+    const json_value *step = p.param("calibration_step");
+
+    if (!step || step->type != JSON_INT)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected calibration_step param");
+        return;
+    }
+
+    Scope *scope = TheScope();
+    if (!scope)
+    {
+        response << jrpc_error(1, "scope not available");
+        return;
+    }
+
+    bool ok = !scope->SetCalibrationDuration(step->int_value);
+    if (ok)
+    {
+        response << jrpc_result(0);
+    }
+    else
+    {
+        response << jrpc_error(1, "could not set calibration step");
+    }
+}
+
+static void get_auto_restore_calibration(JObj& response, const json_value *params)
+{
+    response << jrpc_result(pFrame->GetAutoLoadCalibration());
+}
+
+static void set_auto_restore_calibration(JObj& response, const json_value *params)
+{
+    Params p("enabled", params);
+    const json_value *enabled = p.param("enabled");
+
+    if (!enabled || enabled->type != JSON_BOOL)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected enabled boolean param");
+        return;
+    }
+
+    pFrame->SetAutoLoadCalibration(enabled->int_value != 0);
+    response << jrpc_result(0);
+}
+
+static void get_assume_dec_orthogonal(JObj& response, const json_value *params)
+{
+    Scope *scope = TheScope();
+    if (scope)
+        response << jrpc_result(scope->IsAssumeOrthogonal());
+    else
+        response << jrpc_error(1, "scope not available");
+}
+
+static void set_assume_dec_orthogonal(JObj& response, const json_value *params)
+{
+    Params p("enabled", params);
+    const json_value *enabled = p.param("enabled");
+
+    if (!enabled || enabled->type != JSON_BOOL)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected enabled boolean param");
+        return;
+    }
+
+    Scope *scope = TheScope();
+    if (!scope)
+    {
+        response << jrpc_error(1, "scope not available");
+        return;
+    }
+
+    scope->SetAssumeOrthogonal(enabled->int_value != 0);
+    response << jrpc_result(0);
+}
+
+static void get_use_dec_compensation(JObj& response, const json_value *params)
+{
+    Scope *scope = TheScope();
+    if (scope)
+        response << jrpc_result(scope->DecCompensationEnabled());
+    else
+        response << jrpc_error(1, "scope not available");
+}
+
+static void set_use_dec_compensation(JObj& response, const json_value *params)
+{
+    Params p("enabled", params);
+    const json_value *enabled = p.param("enabled");
+
+    if (!enabled || enabled->type != JSON_BOOL)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected enabled boolean param");
+        return;
+    }
+
+    Scope *scope = TheScope();
+    if (!scope)
+    {
+        response << jrpc_error(1, "scope not available");
+        return;
+    }
+
+    scope->EnableDecCompensation(enabled->int_value != 0);
+    response << jrpc_result(0);
+}
+
+static void clear_mount_calibration(JObj& response, const json_value *params)
+{
+    if (pMount)
+        pMount->ClearCalibration();
+
+    if (pSecondaryMount)
+        pSecondaryMount->ClearCalibration();
+
+    response << jrpc_result(0);
+}
+
+static void get_min_star_hfd(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    response << jrpc_result(pFrame->pGuider->GetMinStarHFD());
+}
+
+static void set_min_star_hfd(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    
+    Params p("hfd", params);
+    const json_value *val = p.param("hfd");
+    double hfd;
+    if (!val || !float_param(val, &hfd))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected hfd number param");
+        return;
+    }
+    
+    pFrame->pGuider->SetMinStarHFD(hfd);
+    response << jrpc_result(hfd);
+}
+
+static void get_max_star_hfd(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    response << jrpc_result(pFrame->pGuider->GetMaxStarHFD());
+}
+
+static void set_max_star_hfd(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    
+    Params p("hfd", params);
+    const json_value *val = p.param("hfd");
+    double hfd;
+    if (!val || !float_param(val, &hfd))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected hfd number param");
+        return;
+    }
+    
+    pFrame->pGuider->SetMaxStarHFD(hfd);
+    response << jrpc_result(hfd);
+}
+
+static void get_beep_for_lost_star(JObj& response, const json_value *params)
+{
+    response << jrpc_result(pFrame->GetBeepForLostStar());
+}
+
+static void set_beep_for_lost_star(JObj& response, const json_value *params)
+{
+    Params p("enabled", params);
+    const json_value *beep = p.param("enabled");
+    if (!beep || beep->type != JSON_BOOL)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected enabled boolean param");
+        return;
+    }
+    
+    bool enabled = beep->int_value != 0;
+    pFrame->SetBeepForLostStar(enabled);
+    response << jrpc_result(enabled);
+}
+
+static void get_mass_change_threshold_enabled(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    GuiderMultiStar *pGuiderMultiStar = dynamic_cast<GuiderMultiStar*>(pFrame->pGuider);
+    if (pGuiderMultiStar)
+        response << jrpc_result(pGuiderMultiStar->GetMassChangeThresholdEnabled());
+    else
+        response << jrpc_result(false);
+}
+
+static void set_mass_change_threshold_enabled(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    
+    Params p("enabled", params);
+    const json_value *enabled = p.param("enabled");
+    if (!enabled || enabled->type != JSON_BOOL)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected enabled boolean param");
+        return;
+    }
+    
+    GuiderMultiStar *pGuiderMultiStar = dynamic_cast<GuiderMultiStar*>(pFrame->pGuider);
+    if (!pGuiderMultiStar)
+    {
+        response << jrpc_error(1, "MultiStar guider not available");
+        return;
+    }
+    
+    bool enable = enabled->int_value != 0;
+    pGuiderMultiStar->SetMassChangeThresholdEnabled(enable);
+    response << jrpc_result(enable);
+}
+
+static void get_mass_change_threshold(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    GuiderMultiStar *pGuiderMultiStar = dynamic_cast<GuiderMultiStar*>(pFrame->pGuider);
+    if (pGuiderMultiStar)
+        response << jrpc_result(pGuiderMultiStar->GetMassChangeThreshold());
+    else
+        response << jrpc_result(0.5);
+}
+
+static void set_mass_change_threshold(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    
+    Params p("tolerance", params);
+    const json_value *val = p.param("tolerance");
+    double tolerance;
+    if (!val || !float_param(val, &tolerance))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected tolerance number param");
+        return;
+    }
+    
+    GuiderMultiStar *pGuiderMultiStar = dynamic_cast<GuiderMultiStar*>(pFrame->pGuider);
+    if (!pGuiderMultiStar)
+    {
+        response << jrpc_error(1, "MultiStar guider not available");
+        return;
+    }
+    
+    if (pGuiderMultiStar->SetMassChangeThreshold(tolerance))
+    {
+        response << jrpc_result(tolerance);
+    }
+    else
+    {
+        response << jrpc_error(1, "Invalid mass change threshold");
+    }
+}
+
+static void get_af_min_star_snr(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    response << jrpc_result(pFrame->pGuider->GetAFMinStarSNR());
+}
+
+static void set_af_min_star_snr(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    
+    Params p("snr", params);
+    const json_value *val = p.param("snr");
+    double snr;
+    if (!val || !float_param(val, &snr))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected snr number param");
+        return;
+    }
+    
+    pFrame->pGuider->SetAFMinStarSNR(snr);
+    response << jrpc_result(snr);
+}
+
+static void get_use_multiple_stars(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    response << jrpc_result(pFrame->pGuider->GetMultiStarMode());
+}
+
+static void set_use_multiple_stars(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    
+    Params p("enabled", params);
+    const json_value *enabled = p.param("enabled");
+    if (!enabled || enabled->type != JSON_BOOL)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected enabled boolean param");
+        return;
+    }
+    
+    bool enable = enabled->int_value != 0;
+    pFrame->pGuider->SetMultiStarMode(enable);
+    response << jrpc_result(enable);
+}
+
+static void get_auto_select_downsample(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    
+    unsigned int downsample = pFrame->pGuider->GetAutoSelDownsample();
+    
+    // Convert internal value to string: 0="Auto", 1="1", 2="2", 3="3"
+    const char *ary[] = { "Auto", "1", "2", "3" };
+    if (downsample < 4)
+    {
+        response << jrpc_result(ary[downsample]);
+    }
+    else
+    {
+        response << jrpc_result("Auto");
+    }
+}
+
+static void set_auto_select_downsample(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    
+    Params p("value", params);
+    const json_value *val = p.param("value");
+    if (!val || val->type != JSON_STRING)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected value string param");
+        return;
+    }
+    
+    const char *valueStr = val->string_value;
+    unsigned int selection = 0;
+    
+    if (strcmp(valueStr, "Auto") == 0)
+        selection = 0;
+    else if (strcmp(valueStr, "1") == 0)
+        selection = 1;
+    else if (strcmp(valueStr, "2") == 0)
+        selection = 2;
+    else if (strcmp(valueStr, "3") == 0)
+        selection = 3;
+    else
+    {
+        response << jrpc_error(1, "Invalid downsample value. Valid values are: Auto, 1, 2, 3");
+        return;
+    }
+    
+    pFrame->pGuider->SetAutoSelDownsample(selection);
+    response << jrpc_result(valueStr);
+}
+
+static void get_always_scale_images(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    response << jrpc_result(pFrame->pGuider->GetScaleImage());
+}
+
+static void set_always_scale_images(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    
+    Params p("enabled", params);
+    const json_value *enabled = p.param("enabled");
+    if (!enabled || enabled->type != JSON_BOOL)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected enabled boolean param");
+        return;
+    }
+    
+    bool enable = enabled->int_value != 0;
+    pFrame->pGuider->SetScaleImage(enable);
+    response << jrpc_result(enable);
+}
+
+static void get_reverse_dec_on_flip(JObj& response, const json_value *params)
+{
+    Scope *scope = TheScope();
+    if (!scope)
+    {
+        response << jrpc_error(1, "Scope not available");
+        return;
+    }
+    
+    response << jrpc_result(scope->CalibrationFlipRequiresDecFlip());
+}
+
+static void set_reverse_dec_on_flip(JObj& response, const json_value *params)
+{
+    Scope *scope = TheScope();
+    if (!scope)
+    {
+        response << jrpc_error(1, "Scope not available");
+        return;
+    }
+    
+    Params p("enabled", params);
+    const json_value *enabled = p.param("enabled");
+    if (!enabled || enabled->type != JSON_BOOL)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected enabled boolean param");
+        return;
+    }
+    
+    bool enable = enabled->int_value != 0;
+    scope->SetCalibrationFlipRequiresDecFlip(enable);
+    response << jrpc_result(enable);
+}
+
+static void get_fast_recenter_enabled(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    response << jrpc_result(pFrame->pGuider->IsFastRecenterEnabled());
+}
+
+static void set_fast_recenter_enabled(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    
+    Params p("enabled", params);
+    const json_value *enabled = p.param("enabled");
+    if (!enabled || enabled->type != JSON_BOOL)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected enabled boolean param");
+        return;
+    }
+    
+    bool enable = enabled->int_value != 0;
+    pFrame->pGuider->EnableFastRecenter(enable);
+    response << jrpc_result(enable);
+}
+
+static void get_mount_guide_output_enabled(JObj& response, const json_value *params)
+{
+    if (!pMount)
+    {
+        response << jrpc_error(1, "Mount not available");
+        return;
+    }
+    
+    response << jrpc_result(pMount->GetGuidingEnabled());
+}
+
+static void set_mount_guide_output_enabled(JObj& response, const json_value *params)
+{
+    if (!pMount)
+    {
+        response << jrpc_error(1, "Mount not available");
+        return;
+    }
+    
+    Params p("enabled", params);
+    const json_value *enabled = p.param("enabled");
+    if (!enabled || enabled->type != JSON_BOOL)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected enabled boolean param");
+        return;
+    }
+    
+    bool enable = enabled->int_value != 0;
+    pMount->SetGuidingEnabled(enable);
+    response << jrpc_result(enable);
+}
+
+static void get_camera_gain(JObj& response, const json_value *params)
+{
+    if (!pCamera)
+    {
+        response << jrpc_error(1, "Camera not available");
+        return;
+    }
+    
+    response << jrpc_result(pCamera->GetCameraGain());
+}
+
+static void set_camera_gain(JObj& response, const json_value *params)
+{
+    if (!pCamera)
+    {
+        response << jrpc_error(1, "Camera not available");
+        return;
+    }
+    
+    Params p("gain", params);
+    const json_value *val = p.param("gain");
+    int gain;
+    if (!val || val->type != JSON_INT)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected gain integer param");
+        return;
+    }
+    
+    gain = val->int_value;
+    if (!pCamera->SetCameraGain(gain))
+    {
+        response << jrpc_result(gain);
+    }
+    else
+    {
+        response << jrpc_error(1, "Failed to set camera gain");
+    }
+}
+
+static void get_camera_cooler_on(JObj& response, const json_value *params)
+{
+    if (!pCamera)
+    {
+        response << jrpc_error(1, "Camera not available");
+        return;
+    }
+    
+    bool on;
+    double setpoint, power, temperature;
+    if (pCamera->GetCoolerStatus(&on, &setpoint, &power, &temperature))
+    {
+        response << jrpc_result(on);
+    }
+    else
+    {
+        response << jrpc_error(1, "Failed to get cooler status");
+    }
+}
+
+static void set_camera_cooler_on(JObj& response, const json_value *params)
+{
+    if (!pCamera)
+    {
+        response << jrpc_error(1, "Camera not available");
+        return;
+    }
+    
+    Params p("enabled", params);
+    const json_value *enabled = p.param("enabled");
+    if (!enabled || enabled->type != JSON_BOOL)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected enabled boolean param");
+        return;
+    }
+    
+    bool enable = enabled->int_value != 0;
+    if (!pCamera->SetCoolerOn(enable))
+    {
+        response << jrpc_result(enable);
+    }
+    else
+    {
+        response << jrpc_error(1, "Failed to set cooler");
+    }
+}
+
+static void get_camera_temperature_setpoint(JObj& response, const json_value *params)
+{
+    if (!pCamera)
+    {
+        response << jrpc_error(1, "Camera not available");
+        return;
+    }
+    
+    bool on;
+    double setpoint, power, temperature;
+    if (pCamera->GetCoolerStatus(&on, &setpoint, &power, &temperature))
+    {
+        response << jrpc_result(setpoint);
+    }
+    else
+    {
+        response << jrpc_error(1, "Failed to get cooler status");
+    }
+}
+
+static void set_camera_temperature_setpoint(JObj& response, const json_value *params)
+{
+    if (!pCamera)
+    {
+        response << jrpc_error(1, "Camera not available");
+        return;
+    }
+    
+    Params p("temperature", params);
+    const json_value *val = p.param("temperature");
+    double temperature;
+    if (!val || !float_param(val, &temperature))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected temperature number param");
+        return;
+    }
+    
+    if (!pCamera->SetCoolerSetpoint(temperature))
+    {
+        response << jrpc_result(temperature);
+    }
+    else
+    {
+        response << jrpc_error(1, "Failed to set cooler setpoint");
+    }
+}
+
+static void get_camera_use_subframes(JObj& response, const json_value *params)
+{
+    if (!pCamera)
+    {
+        response << jrpc_error(1, "Camera not available");
+        return;
+    }
+    
+    response << jrpc_result(pCamera->UseSubframes);
+}
+
+static void set_camera_use_subframes(JObj& response, const json_value *params)
+{
+    if (!pCamera)
+    {
+        response << jrpc_error(1, "Camera not available");
+        return;
+    }
+    
+    Params p("enabled", params);
+    const json_value *enabled = p.param("enabled");
+    if (!enabled || enabled->type != JSON_BOOL)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected enabled boolean param");
+        return;
+    }
+    
+    bool enable = enabled->int_value != 0;
+    pCamera->UseSubframes = enable;
+    response << jrpc_result(enable);
+}
+
+static void set_camera_binning(JObj& response, const json_value *params)
+{
+    if (!pCamera)
+    {
+        response << jrpc_error(1, "Camera not available");
+        return;
+    }
+    
+    Params p("binning", params);
+    const json_value *val = p.param("binning");
+    int binning;
+    if (!val || val->type != JSON_INT)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected binning integer param");
+        return;
+    }
+    
+    binning = val->int_value;
+    if (pCamera->SetBinning(binning))
+    {
+        response << jrpc_result(binning);
+    }
+    else
+    {
+        response << jrpc_error(1, "Failed to set binning");
+    }
+}
+
 static void get_app_state(JObj& response, const json_value *params)
 {
     EXPOSED_STATE st = Guider::GetExposedState();
@@ -1496,6 +2200,30 @@ static void get_search_region(JObj& response, const json_value *params)
     response << jrpc_result(pFrame->pGuider->GetSearchRegion());
 }
 
+static void set_search_region(JObj& response, const json_value *params)
+{
+    VERIFY_GUIDER(response);
+    
+    Params p("pixels", params);
+    const json_value *val = p.param("pixels");
+    int pixels;
+    if (!val || val->type != JSON_INT)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected pixels integer param");
+        return;
+    }
+    
+    pixels = val->int_value;
+    GuiderMultiStar *multiStar = dynamic_cast<GuiderMultiStar *>(pFrame->pGuider);
+    if (!multiStar || !multiStar->SetSearchRegion(pixels))
+    {
+        response << jrpc_error(1, "Invalid search region or guider is not multi-star");
+        return;
+    }
+    
+    response << jrpc_result(pixels);
+}
+
 struct B64Encode
 {
     static const char *const E;
@@ -1775,6 +2503,409 @@ static void get_camera_binning(JObj& response, const json_value *params)
     }
     else
         response << jrpc_error(1, "camera not connected");
+}
+
+static void get_auto_exposure_min(JObj& response, const json_value *params)
+{
+    const AutoExposureCfg& cfg = pFrame->GetAutoExposureCfg();
+    response << jrpc_result(cfg.minExposure);
+}
+
+static void set_auto_exposure_min(JObj& response, const json_value *params)
+{
+    Params p("exposure", params);
+    const json_value *val = p.param("exposure");
+    int minExp;
+    if (!val || val->type != JSON_INT)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected exposure integer param");
+        return;
+    }
+
+    minExp = val->int_value;
+    const AutoExposureCfg& cfg = pFrame->GetAutoExposureCfg();
+    if (pFrame->SetAutoExposureCfg(minExp, cfg.maxExposure, cfg.targetSNR))
+    {
+        response << jrpc_result(minExp);
+    }
+    else
+    {
+        response << jrpc_error(1, "Failed to set auto exposure min");
+    }
+}
+
+static void get_auto_exposure_max(JObj& response, const json_value *params)
+{
+    const AutoExposureCfg& cfg = pFrame->GetAutoExposureCfg();
+    response << jrpc_result(cfg.maxExposure);
+}
+
+static void set_auto_exposure_max(JObj& response, const json_value *params)
+{
+    Params p("exposure", params);
+    const json_value *val = p.param("exposure");
+    int maxExp;
+    if (!val || val->type != JSON_INT)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected exposure integer param");
+        return;
+    }
+
+    maxExp = val->int_value;
+    const AutoExposureCfg& cfg = pFrame->GetAutoExposureCfg();
+    if (pFrame->SetAutoExposureCfg(cfg.minExposure, maxExp, cfg.targetSNR))
+    {
+        response << jrpc_result(maxExp);
+    }
+    else
+    {
+        response << jrpc_error(1, "Failed to set auto exposure max");
+    }
+}
+
+static void get_auto_exposure_target_snr(JObj& response, const json_value *params)
+{
+    const AutoExposureCfg& cfg = pFrame->GetAutoExposureCfg();
+    response << jrpc_result(cfg.targetSNR);
+}
+
+static void set_auto_exposure_target_snr(JObj& response, const json_value *params)
+{
+    Params p("target_snr", params);
+    const json_value *val = p.param("target_snr");
+    double targetSNR;
+    if (!val || !float_param(val, &targetSNR))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected target_snr number param");
+        return;
+    }
+
+    const AutoExposureCfg& cfg = pFrame->GetAutoExposureCfg();
+    if (pFrame->SetAutoExposureCfg(cfg.minExposure, cfg.maxExposure, targetSNR))
+    {
+        response << jrpc_result(targetSNR);
+    }
+    else
+    {
+        response << jrpc_error(1, "Failed to set auto exposure target SNR");
+    }
+}
+
+static void get_dither_mode(JObj& response, const json_value *params)
+{
+    DitherMode mode = pFrame->GetDitherMode();
+    const char *mode_str = (mode == DITHER_RANDOM) ? "random" : "spiral";
+    response << jrpc_result(mode_str);
+}
+
+static void set_dither_mode(JObj& response, const json_value *params)
+{
+    Params p("mode", params);
+    const json_value *val = p.param("mode");
+    if (!val || val->type != JSON_STRING)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected mode string param");
+        return;
+    }
+
+    DitherMode mode;
+    if (strcmp(val->string_value, "random") == 0)
+        mode = DITHER_RANDOM;
+    else if (strcmp(val->string_value, "spiral") == 0)
+        mode = DITHER_SPIRAL;
+    else
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "mode must be 'random' or 'spiral'");
+        return;
+    }
+
+    pFrame->SetDitherMode(mode);
+    response << jrpc_result(val->string_value);
+}
+
+static void get_dither_ra_only(JObj& response, const json_value *params)
+{
+    response << jrpc_result(pFrame->GetDitherRaOnly());
+}
+
+static void set_dither_ra_only(JObj& response, const json_value *params)
+{
+    Params p("ra_only", params);
+    const json_value *val = p.param("ra_only");
+    bool raOnly;
+    if (!val || val->type != JSON_BOOL)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected ra_only boolean param");
+        return;
+    }
+
+    raOnly = val->int_value != 0;
+    if (pFrame->SetDitherRaOnly(raOnly))
+    {
+        response << jrpc_result(raOnly);
+    }
+    else
+    {
+        response << jrpc_error(1, "Failed to set dither ra_only");
+    }
+}
+
+static void get_dither_scale(JObj& response, const json_value *params)
+{
+    response << jrpc_result(pFrame->GetDitherScaleFactor());
+}
+
+static void set_dither_scale(JObj& response, const json_value *params)
+{
+    Params p("scale", params);
+    const json_value *val = p.param("scale");
+    double scale;
+    if (!val || !float_param(val, &scale))
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected scale number param");
+        return;
+    }
+
+    if (pFrame->SetDitherScaleFactor(scale))
+    {
+        response << jrpc_result(scale);
+    }
+    else
+    {
+        response << jrpc_error(1, "Failed to set dither scale");
+    }
+}
+
+static void get_saturation_by_adu(JObj& response, const json_value *params)
+{
+    if (!pCamera)
+    {
+        response << jrpc_error(1, "Camera not available");
+        return;
+    }
+
+    response << jrpc_result(pCamera->IsSaturationByADU());
+}
+
+static void get_saturation_adu_value(JObj& response, const json_value *params)
+{
+    if (!pCamera)
+    {
+        response << jrpc_error(1, "Camera not available");
+        return;
+    }
+
+    response << jrpc_result((int)pCamera->GetSaturationADU());
+}
+
+static void set_saturation_by_adu(JObj& response, const json_value *params)
+{
+    if (!pCamera)
+    {
+        response << jrpc_error(1, "Camera not available");
+        return;
+    }
+
+    Params p("by_adu", params);
+    const json_value *by_adu_val = p.param("by_adu");
+    bool byADU;
+    if (!by_adu_val || by_adu_val->type != JSON_BOOL)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected by_adu boolean param");
+        return;
+    }
+
+    byADU = by_adu_val->int_value != 0;
+
+    // If switching to ADU mode, need to extract the ADU value from params
+    unsigned short aduValue = 0;
+    if (byADU)
+    {
+        const json_value *adu_val = p.param("adu_value");
+        if (!adu_val || adu_val->type != JSON_INT)
+        {
+            response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected adu_value integer param when by_adu is true");
+            return;
+        }
+        aduValue = (unsigned short)adu_val->int_value;
+    }
+
+    pCamera->SetSaturationByADU(byADU, aduValue);
+    response << jrpc_result(byADU);
+}
+
+static void set_saturation_adu_value(JObj& response, const json_value *params)
+{
+    if (!pCamera)
+    {
+        response << jrpc_error(1, "Camera not available");
+        return;
+    }
+
+    Params p("adu_value", params);
+    const json_value *val = p.param("adu_value");
+    int aduValue;
+    if (!val || val->type != JSON_INT)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected adu_value integer param");
+        return;
+    }
+
+    aduValue = val->int_value;
+    pCamera->SetSaturationByADU(true, (unsigned short)aduValue);
+    response << jrpc_result(aduValue);
+}
+
+static void get_guide_algorithm_ra(JObj& response, const json_value *params)
+{
+    if (!pMount)
+    {
+        response << jrpc_error(1, "Mount not available");
+        return;
+    }
+
+    int algo = pMount->GetXGuideAlgorithmSelection();
+    const char *algo_str;
+    switch (algo)
+    {
+        case GUIDE_ALGORITHM_IDENTITY: algo_str = "None"; break;
+        case GUIDE_ALGORITHM_HYSTERESIS: algo_str = "Hysteresis"; break;
+        case GUIDE_ALGORITHM_LOWPASS: algo_str = "Lowpass"; break;
+        case GUIDE_ALGORITHM_LOWPASS2: algo_str = "Lowpass2"; break;
+        case GUIDE_ALGORITHM_RESIST_SWITCH: algo_str = "Resist Switch"; break;
+        case GUIDE_ALGORITHM_GAUSSIAN_PROCESS: algo_str = "Predictive PEC"; break;
+        case GUIDE_ALGORITHM_ZFILTER: algo_str = "ZFilter"; break;
+        case GUIDE_ALGORITHM_NONE:
+        default:
+            algo_str = "None"; break;
+    }
+    response << jrpc_result(algo_str);
+}
+
+static void set_guide_algorithm_ra(JObj& response, const json_value *params)
+{
+    if (!pMount)
+    {
+        response << jrpc_error(1, "Mount not available");
+        return;
+    }
+
+    Params p("algorithm", params);
+    const json_value *val = p.param("algorithm");
+    if (!val || val->type != JSON_STRING)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected algorithm string param");
+        return;
+    }
+
+    int algo;
+    wxString algoName(val->string_value);
+    
+    if (algoName == "None")
+        algo = GUIDE_ALGORITHM_IDENTITY;
+    else if (algoName == "Hysteresis")
+        algo = GUIDE_ALGORITHM_HYSTERESIS;
+    else if (algoName == "Lowpass")
+        algo = GUIDE_ALGORITHM_LOWPASS;
+    else if (algoName == "Lowpass2")
+        algo = GUIDE_ALGORITHM_LOWPASS2;
+    else if (algoName == "Resist Switch")
+        algo = GUIDE_ALGORITHM_RESIST_SWITCH;
+    else if (algoName == "Predictive PEC")
+        algo = GUIDE_ALGORITHM_GAUSSIAN_PROCESS;
+    else if (algoName.StartsWith("ZFilter"))
+        algo = GUIDE_ALGORITHM_ZFILTER;
+    else
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid algorithm name");
+        return;
+    }
+
+    pMount->SetXGuideAlgorithm(algo);
+    
+    // Signal the Advanced dialog to rebuild mount pane when next displayed
+    if (pFrame && pFrame->pAdvancedDialog)
+    {
+        pFrame->pAdvancedDialog->UpdateMountPage();
+    }
+    
+    response << jrpc_result(val->string_value);
+}
+
+static void get_guide_algorithm_dec(JObj& response, const json_value *params)
+{
+    if (!pMount)
+    {
+        response << jrpc_error(1, "Mount not available");
+        return;
+    }
+
+    int algo = pMount->GetYGuideAlgorithmSelection();
+    const char *algo_str;
+    switch (algo)
+    {
+        case GUIDE_ALGORITHM_IDENTITY: algo_str = "None"; break;
+        case GUIDE_ALGORITHM_HYSTERESIS: algo_str = "Hysteresis"; break;
+        case GUIDE_ALGORITHM_LOWPASS: algo_str = "Lowpass"; break;
+        case GUIDE_ALGORITHM_LOWPASS2: algo_str = "Lowpass2"; break;
+        case GUIDE_ALGORITHM_RESIST_SWITCH: algo_str = "Resist Switch"; break;
+        case GUIDE_ALGORITHM_GAUSSIAN_PROCESS: algo_str = "Predictive PEC"; break;
+        case GUIDE_ALGORITHM_ZFILTER: algo_str = "ZFilter"; break;
+        case GUIDE_ALGORITHM_NONE:
+        default:
+            algo_str = "None"; break;
+    }
+    response << jrpc_result(algo_str);
+}
+
+static void set_guide_algorithm_dec(JObj& response, const json_value *params)
+{
+    if (!pMount)
+    {
+        response << jrpc_error(1, "Mount not available");
+        return;
+    }
+
+    Params p("algorithm", params);
+    const json_value *val = p.param("algorithm");
+    if (!val || val->type != JSON_STRING)
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "expected algorithm string param");
+        return;
+    }
+
+    int algo;
+    wxString algoName(val->string_value);
+    
+    if (algoName == "None")
+        algo = GUIDE_ALGORITHM_IDENTITY;
+    else if (algoName == "Hysteresis")
+        algo = GUIDE_ALGORITHM_HYSTERESIS;
+    else if (algoName == "Lowpass")
+        algo = GUIDE_ALGORITHM_LOWPASS;
+    else if (algoName == "Lowpass2")
+        algo = GUIDE_ALGORITHM_LOWPASS2;
+    else if (algoName == "Resist Switch")
+        algo = GUIDE_ALGORITHM_RESIST_SWITCH;
+    else if (algoName == "Predictive PEC")
+        algo = GUIDE_ALGORITHM_GAUSSIAN_PROCESS;
+    else if (algoName.StartsWith("ZFilter"))
+        algo = GUIDE_ALGORITHM_ZFILTER;
+    else
+    {
+        response << jrpc_error(JSONRPC_INVALID_PARAMS, "invalid algorithm name");
+        return;
+    }
+
+    pMount->SetYGuideAlgorithm(algo);
+    
+    // Signal the Advanced dialog to rebuild mount pane when next displayed
+    if (pFrame && pFrame->pAdvancedDialog)
+    {
+        pFrame->pAdvancedDialog->UpdateMountPage();
+    }
+    
+    response << jrpc_result(val->string_value);
 }
 
 static void get_camera_frame_size(JObj& response, const json_value *params)
@@ -2408,6 +3539,17 @@ static bool handle_request(JRpcCall& call)
         { "dither", &dither },
         { "find_star", &find_star },
         { "get_pixel_scale", &get_pixel_scale },
+        { "get_focal_length", &get_focal_length },
+        { "set_focal_length", &set_focal_length },
+        { "get_calibration_step", &get_calibration_step },
+        { "set_calibration_step", &set_calibration_step },
+        { "get_auto_restore_calibration", &get_auto_restore_calibration },
+        { "set_auto_restore_calibration", &set_auto_restore_calibration },
+        { "get_assume_dec_orthogonal", &get_assume_dec_orthogonal },
+        { "set_assume_dec_orthogonal", &set_assume_dec_orthogonal },
+        { "get_use_dec_compensation", &get_use_dec_compensation },
+        { "set_use_dec_compensation", &set_use_dec_compensation },
+        { "clear_mount_calibration", &clear_mount_calibration },
         { "get_app_state", &get_app_state },
         { "flip_calibration", &flip_calibration },
         { "get_lock_shift_enabled", &get_lock_shift_enabled },
@@ -2418,8 +3560,62 @@ static bool handle_request(JRpcCall& call)
         { "get_star_image", &get_star_image },
         { "get_use_subframes", &get_use_subframes },
         { "get_search_region", &get_search_region },
+        { "set_search_region", &set_search_region },
+        { "get_min_star_hfd", &get_min_star_hfd },
+        { "set_min_star_hfd", &set_min_star_hfd },
+        { "get_max_star_hfd", &get_max_star_hfd },
+        { "set_max_star_hfd", &set_max_star_hfd },
+        { "get_beep_for_lost_star", &get_beep_for_lost_star },
+        { "set_beep_for_lost_star", &set_beep_for_lost_star },
+        { "get_mass_change_threshold_enabled", &get_mass_change_threshold_enabled },
+        { "set_mass_change_threshold_enabled", &set_mass_change_threshold_enabled },
+        { "get_mass_change_threshold", &get_mass_change_threshold },
+        { "set_mass_change_threshold", &set_mass_change_threshold },
+        { "get_af_min_star_snr", &get_af_min_star_snr },
+        { "set_af_min_star_snr", &set_af_min_star_snr },
+        { "get_use_multiple_stars", &get_use_multiple_stars },
+        { "set_use_multiple_stars", &set_use_multiple_stars },
+        { "get_auto_select_downsample", &get_auto_select_downsample },
+        { "set_auto_select_downsample", &set_auto_select_downsample },
+        { "get_always_scale_images", &get_always_scale_images },
+        { "set_always_scale_images", &set_always_scale_images },
+        { "get_reverse_dec_on_flip", &get_reverse_dec_on_flip },
+        { "set_reverse_dec_on_flip", &set_reverse_dec_on_flip },
+        { "get_fast_recenter_enabled", &get_fast_recenter_enabled },
+        { "set_fast_recenter_enabled", &set_fast_recenter_enabled },
+        { "get_mount_guide_output_enabled", &get_mount_guide_output_enabled },
+        { "set_mount_guide_output_enabled", &set_mount_guide_output_enabled },
+        { "get_camera_gain", &get_camera_gain },
+        { "set_camera_gain", &set_camera_gain },
+        { "get_camera_cooler_on", &get_camera_cooler_on },
+        { "set_camera_cooler_on", &set_camera_cooler_on },
+        { "get_camera_temperature_setpoint", &get_camera_temperature_setpoint },
+        { "set_camera_temperature_setpoint", &set_camera_temperature_setpoint },
+        { "get_camera_use_subframes", &get_camera_use_subframes },
+        { "set_camera_use_subframes", &set_camera_use_subframes },
         { "shutdown", &shutdown },
         { "get_camera_binning", &get_camera_binning },
+        { "set_camera_binning", &set_camera_binning },
+        { "get_auto_exposure_min", &get_auto_exposure_min },
+        { "set_auto_exposure_min", &set_auto_exposure_min },
+        { "get_auto_exposure_max", &get_auto_exposure_max },
+        { "set_auto_exposure_max", &set_auto_exposure_max },
+        { "get_auto_exposure_target_snr", &get_auto_exposure_target_snr },
+        { "set_auto_exposure_target_snr", &set_auto_exposure_target_snr },
+        { "get_dither_mode", &get_dither_mode },
+        { "set_dither_mode", &set_dither_mode },
+        { "get_dither_ra_only", &get_dither_ra_only },
+        { "set_dither_ra_only", &set_dither_ra_only },
+        { "get_dither_scale", &get_dither_scale },
+        { "set_dither_scale", &set_dither_scale },
+        { "get_saturation_by_adu", &get_saturation_by_adu },
+        { "get_saturation_adu_value", &get_saturation_adu_value },
+        { "set_saturation_by_adu", &set_saturation_by_adu },
+        { "set_saturation_adu_value", &set_saturation_adu_value },
+        { "get_guide_algorithm_ra", &get_guide_algorithm_ra },
+        { "set_guide_algorithm_ra", &set_guide_algorithm_ra },
+        { "get_guide_algorithm_dec", &get_guide_algorithm_dec },
+        { "set_guide_algorithm_dec", &set_guide_algorithm_dec },
         { "get_camera_frame_size", &get_camera_frame_size },
         { "get_current_equipment", &get_current_equipment },
         { "get_guide_output_enabled", &get_guide_output_enabled },

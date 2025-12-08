@@ -37,6 +37,7 @@
 
 # include "cam_playerone.h"
 # include "PlayerOneCamera.h"
+# include "camera_config_manager.h"
 
 # ifdef __WINDOWS__
 
@@ -121,6 +122,9 @@ PlayerOneCamera::PlayerOneCamera() : m_buffer(nullptr)
     m_defaultGainPct = GuideCamera::GetDefaultCameraGain();
     int value = pConfig->Profile.GetInt("/camera/POA/bpp", 8);
     m_bpp = value == 8 ? 8 : 16;
+    
+    // Publish initial bitdepth configuration to shared memory
+    CameraConfigManager::PublishOption("bitdepth", m_bpp, 8, 16);
 }
 
 PlayerOneCamera::~PlayerOneCamera()
@@ -186,6 +190,7 @@ void PlayerOneCamera::ShowPropertyDialog()
     {
         m_bpp = dlg.m_bpp8->GetValue() ? 8 : 16;
         pConfig->Profile.SetInt("/camera/POA/bpp", m_bpp);
+        CameraConfigManager::PublishOption("bitdepth", m_bpp, 8, 16);
     }
 }
 
