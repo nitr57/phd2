@@ -33,12 +33,10 @@ MountListSHM* shm_mount_init(int create_if_missing)
     if (g_shm_ptr != NULL)
     {
         // Already initialized
-        fprintf(stderr, "shm_mount_init: Already initialized at %p\n", (void*)g_shm_ptr);
         return g_shm_ptr;
     }
 
     g_shm_size = sizeof(MountListSHM);
-    fprintf(stderr, "shm_mount_init: SHM size will be %zu bytes\n", g_shm_size);
 
     // Try to open existing shared memory
     int shm_fd = shm_open(PHD2_MOUNT_SHM_NAME, O_RDWR, 0666);
@@ -47,7 +45,6 @@ MountListSHM* shm_mount_init(int create_if_missing)
     {
         if (!create_if_missing)
         {
-            fprintf(stderr, "shm_mount: Failed to open mount shared memory: %s\n", strerror(errno));
             return NULL;
         }
 
@@ -55,14 +52,12 @@ MountListSHM* shm_mount_init(int create_if_missing)
         shm_fd = shm_open(PHD2_MOUNT_SHM_NAME, O_CREAT | O_RDWR, 0666);
         if (shm_fd == -1)
         {
-            fprintf(stderr, "shm_mount: Failed to create mount shared memory: %s\n", strerror(errno));
             return NULL;
         }
 
         // Set the size of the shared memory
         if (ftruncate(shm_fd, g_shm_size) == -1)
         {
-            fprintf(stderr, "shm_mount: Failed to set size: %s\n", strerror(errno));
             close(shm_fd);
             shm_unlink(PHD2_MOUNT_SHM_NAME);
             return NULL;
@@ -76,7 +71,6 @@ MountListSHM* shm_mount_init(int create_if_missing)
 
     if (ptr == MAP_FAILED)
     {
-        fprintf(stderr, "shm_mount: Failed to map shared memory: %s\n", strerror(errno));
         close(shm_fd);
         if (g_shm_owner)
         {
@@ -98,11 +92,6 @@ MountListSHM* shm_mount_init(int create_if_missing)
         g_shm_ptr->timestamp = (uint32_t)time(NULL);
         g_shm_ptr->list_update_counter = 0;
         g_shm_ptr->selected_change_counter = 0;
-        fprintf(stderr, "shm_mount: Created and initialized shared memory\n");
-    }
-    else
-    {
-        fprintf(stderr, "shm_mount: Opened existing shared memory\n");
     }
 
     return g_shm_ptr;
@@ -130,7 +119,6 @@ void shm_mount_cleanup(MountListSHM* shm, int unlink)
     if (unlink && g_shm_owner)
     {
         shm_unlink(PHD2_MOUNT_SHM_NAME);
-        fprintf(stderr, "shm_mount: Unlinked shared memory\n");
     }
 
     g_shm_owner = 0;
@@ -146,7 +134,6 @@ int shm_mount_update_list(MountListSHM* shm, const char** mounts, uint32_t num_m
 
     if (num_mounts > MAX_MOUNTS_SHM)
     {
-        fprintf(stderr, "shm_mount: Too many mounts (%u > %d)\n", num_mounts, MAX_MOUNTS_SHM);
         return -1;
     }
 
@@ -163,7 +150,6 @@ int shm_mount_update_list(MountListSHM* shm, const char** mounts, uint32_t num_m
         size_t len = strlen(mounts[i]);
         if (len >= MAX_MOUNT_NAME_LEN)
         {
-            fprintf(stderr, "shm_mount: Mount name too long: %s\n", mounts[i]);
             len = MAX_MOUNT_NAME_LEN - 1;
         }
 
@@ -194,30 +180,20 @@ int shm_mount_set_selected(MountListSHM* shm, uint32_t index)
 {
     if (shm == NULL)
     {
-        fprintf(stderr, "shm_mount_set_selected: ERROR - shm is NULL\n");
         return -1;
     }
-
-    fprintf(stderr, "shm_mount_set_selected: Setting mount index to %u (num_mounts=%u)\n", index, shm->num_mounts);
 
     // Validate index
     if (index != INVALID_MOUNT_INDEX && index >= shm->num_mounts)
     {
-        fprintf(stderr, "shm_mount: Invalid mount index: %u (max: %u)\n", index, shm->num_mounts - 1);
         return -1;
     }
 
     if (shm->selected_mount_index != index)
     {
-        fprintf(stderr, "shm_mount_set_selected: Writing index %u to shared memory at %p\n", index, (void*)shm);
         shm->selected_mount_index = index;
         shm->selected_change_counter++;
         shm->timestamp = (uint32_t)time(NULL);
-        fprintf(stderr, "shm_mount_set_selected: After write - selected_mount_index=%u\n", shm->selected_mount_index);
-    }
-    else
-    {
-        fprintf(stderr, "shm_mount_set_selected: Index unchanged (already %u)\n", index);
     }
 
     return 0;
@@ -227,13 +203,10 @@ uint32_t shm_mount_get_selected(const MountListSHM* shm)
 {
     if (shm == NULL)
     {
-        fprintf(stderr, "shm_mount_get_selected: ERROR - shm is NULL\n");
         return INVALID_MOUNT_INDEX;
     }
 
     uint32_t result = shm->selected_mount_index;
-    fprintf(stderr, "shm_mount_get_selected: Reading from %p - result=%u (INVALID=%u)\n", (const void*)shm, result, INVALID_MOUNT_INDEX);
-
     return result;
 }
 
@@ -286,7 +259,6 @@ int shm_mount_write_selected(uint32_t index)
 
     if (shm_fd == -1)
     {
-        fprintf(stderr, "shm_mount: Failed to open shared memory for writing: %s\n", strerror(errno));
         return -1;
     }
 
@@ -297,7 +269,6 @@ int shm_mount_write_selected(uint32_t index)
 
     if (ptr == MAP_FAILED)
     {
-        fprintf(stderr, "shm_mount: Failed to map shared memory for writing: %s\n", strerror(errno));
         close(shm_fd);
         return -1;
     }
@@ -307,7 +278,6 @@ int shm_mount_write_selected(uint32_t index)
     // Validate index
     if (index != INVALID_MOUNT_INDEX && index >= shm->num_mounts)
     {
-        fprintf(stderr, "shm_mount: Invalid mount index: %u (max: %u)\n", index, shm->num_mounts - 1);
         munmap(shm, shm_size);
         close(shm_fd);
         return -1;
@@ -340,7 +310,6 @@ const MountListSHM* shm_mount_get_readonly(void)
 
     if (shm_fd == -1)
     {
-        fprintf(stderr, "shm_mount: Failed to open shared memory for reading: %s\n", strerror(errno));
         return NULL;
     }
 
@@ -351,7 +320,6 @@ const MountListSHM* shm_mount_get_readonly(void)
 
     if (ptr == MAP_FAILED)
     {
-        fprintf(stderr, "shm_mount: Failed to map shared memory for reading: %s\n", strerror(errno));
         close(shm_fd);
         return NULL;
     }

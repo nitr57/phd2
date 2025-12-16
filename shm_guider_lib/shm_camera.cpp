@@ -45,7 +45,6 @@ CameraListSHM* shm_camera_init(int create_if_missing)
     {
         if (!create_if_missing)
         {
-            fprintf(stderr, "shm_camera: Failed to open shared memory: %s\n", strerror(errno));
             return NULL;
         }
 
@@ -53,14 +52,12 @@ CameraListSHM* shm_camera_init(int create_if_missing)
         shm_fd = shm_open(PHD2_CAMERA_SHM_NAME, O_CREAT | O_RDWR, 0666);
         if (shm_fd == -1)
         {
-            fprintf(stderr, "shm_camera: Failed to create shared memory: %s\n", strerror(errno));
             return NULL;
         }
 
         // Set the size of the shared memory
         if (ftruncate(shm_fd, g_shm_size) == -1)
         {
-            fprintf(stderr, "shm_camera: Failed to set size: %s\n", strerror(errno));
             close(shm_fd);
             shm_unlink(PHD2_CAMERA_SHM_NAME);
             return NULL;
@@ -74,7 +71,6 @@ CameraListSHM* shm_camera_init(int create_if_missing)
 
     if (ptr == MAP_FAILED)
     {
-        fprintf(stderr, "shm_camera: Failed to map shared memory: %s\n", strerror(errno));
         close(shm_fd);
         if (g_shm_owner)
         {
@@ -96,11 +92,9 @@ CameraListSHM* shm_camera_init(int create_if_missing)
         g_shm_ptr->timestamp = (uint32_t)time(NULL);
         g_shm_ptr->list_update_counter = 0;
         g_shm_ptr->selected_change_counter = 0;
-        fprintf(stderr, "shm_camera: Created and initialized shared memory\n");
     }
     else
     {
-        fprintf(stderr, "shm_camera: Opened existing shared memory\n");
     }
 
     return g_shm_ptr;
@@ -123,7 +117,6 @@ void shm_camera_cleanup(CameraListSHM* shm, int unlink)
     if (unlink && g_shm_owner)
     {
         shm_unlink(PHD2_CAMERA_SHM_NAME);
-        fprintf(stderr, "shm_camera: Unlinked shared memory\n");
     }
 
     g_shm_owner = 0;
@@ -139,7 +132,6 @@ int shm_camera_update_list(CameraListSHM* shm, const char** cameras, uint32_t nu
 
     if (num_cameras > MAX_CAMERAS_SHM)
     {
-        fprintf(stderr, "shm_camera: Too many cameras (%u > %d)\n", num_cameras, MAX_CAMERAS_SHM);
         return -1;
     }
 
@@ -154,7 +146,6 @@ int shm_camera_update_list(CameraListSHM* shm, const char** cameras, uint32_t nu
         size_t len = strlen(cameras[i]);
         if (len >= MAX_CAMERA_NAME_LEN)
         {
-            fprintf(stderr, "shm_camera: Camera name too long: %s\n", cameras[i]);
             len = MAX_CAMERA_NAME_LEN - 1;
         }
 
@@ -192,7 +183,6 @@ int shm_camera_set_selected(CameraListSHM* shm, uint32_t index)
     // Validate index
     if (index != INVALID_CAMERA_INDEX && index >= shm->num_cameras)
     {
-        fprintf(stderr, "shm_camera: Invalid camera index: %u (max: %u)\n", index, shm->num_cameras - 1);
         return -1;
     }
 
@@ -268,7 +258,6 @@ int shm_camera_write_selected(uint32_t index)
 
     if (shm_fd == -1)
     {
-        fprintf(stderr, "shm_camera: Failed to open shared memory for writing: %s\n", strerror(errno));
         return -1;
     }
 
@@ -279,7 +268,6 @@ int shm_camera_write_selected(uint32_t index)
 
     if (ptr == MAP_FAILED)
     {
-        fprintf(stderr, "shm_camera: Failed to map shared memory for writing: %s\n", strerror(errno));
         close(shm_fd);
         return -1;
     }
@@ -289,7 +277,6 @@ int shm_camera_write_selected(uint32_t index)
     // Validate index
     if (index != INVALID_CAMERA_INDEX && index >= shm->num_cameras)
     {
-        fprintf(stderr, "shm_camera: Invalid camera index: %u (max: %u)\n", index, shm->num_cameras - 1);
         munmap(shm, shm_size);
         close(shm_fd);
         return -1;
@@ -322,7 +309,6 @@ const CameraListSHM* shm_camera_get_readonly(void)
 
     if (shm_fd == -1)
     {
-        fprintf(stderr, "shm_camera: Failed to open shared memory for reading: %s\n", strerror(errno));
         return NULL;
     }
 
@@ -333,7 +319,6 @@ const CameraListSHM* shm_camera_get_readonly(void)
 
     if (ptr == MAP_FAILED)
     {
-        fprintf(stderr, "shm_camera: Failed to map shared memory for reading: %s\n", strerror(errno));
         close(shm_fd);
         return NULL;
     }
