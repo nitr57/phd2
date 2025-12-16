@@ -2,7 +2,7 @@
  *  shm_mount.cpp
  *  PHD Guiding
  *
- *  POSIX Shared Memory implementation for mount equipment
+ *  POSIX Shared Memory implementation for mount list (pure C, no wxWidgets)
  *  This file contains mount-specific implementations
  *
  */
@@ -19,198 +19,234 @@
 #include <semaphore.h>
 #include <stdio.h>
 
-// ===== MOUNT SHARED MEMORY IMPLEMENTATION =====
+// File descriptor for the shared memory object
+static int g_shm_fd = -1;
+// Pointer to the mapped shared memory
+static MountListSHM* g_shm_ptr = NULL;
+// Size of the shared memory segment
+static size_t g_shm_size = 0;
+// Whether we own the shared memory (created it)
+static int g_shm_owner = 0;
 
-static int g_mount_shm_fd = -1;
-static EquipmentListSHM* g_mount_shm_ptr = NULL;
-static size_t g_mount_shm_size = 0;
-static int g_mount_shm_owner = 0;
-
-EquipmentListSHM* shm_mount_init(int create_if_missing)
+MountListSHM* shm_mount_init(int create_if_missing)
 {
-    if (g_mount_shm_ptr != NULL)
+    if (g_shm_ptr != NULL)
     {
-        return g_mount_shm_ptr;  // Already initialized
+        // Already initialized
+        fprintf(stderr, "shm_mount_init: Already initialized at %p\n", (void*)g_shm_ptr);
+        return g_shm_ptr;
     }
 
-    g_mount_shm_fd = shm_open(PHD2_MOUNT_SHM_NAME, O_RDWR, 0666);
+    g_shm_size = sizeof(MountListSHM);
+    fprintf(stderr, "shm_mount_init: SHM size will be %zu bytes\n", g_shm_size);
 
-    if (g_mount_shm_fd == -1)
+    // Try to open existing shared memory
+    int shm_fd = shm_open(PHD2_MOUNT_SHM_NAME, O_RDWR, 0666);
+
+    if (shm_fd == -1)
     {
         if (!create_if_missing)
         {
-            fprintf(stderr, "shm_guider: Failed to open mount shared memory: %s\n", strerror(errno));
+            fprintf(stderr, "shm_mount: Failed to open mount shared memory: %s\n", strerror(errno));
             return NULL;
         }
 
-        g_mount_shm_fd = shm_open(PHD2_MOUNT_SHM_NAME, O_CREAT | O_RDWR, 0666);
-
-        if (g_mount_shm_fd == -1)
+        // Create new shared memory
+        shm_fd = shm_open(PHD2_MOUNT_SHM_NAME, O_CREAT | O_RDWR, 0666);
+        if (shm_fd == -1)
         {
-            fprintf(stderr, "shm_guider: Failed to create mount shared memory: %s\n", strerror(errno));
+            fprintf(stderr, "shm_mount: Failed to create mount shared memory: %s\n", strerror(errno));
             return NULL;
         }
 
-        g_mount_shm_size = sizeof(EquipmentListSHM);
-
-        if (ftruncate(g_mount_shm_fd, g_mount_shm_size) == -1)
+        // Set the size of the shared memory
+        if (ftruncate(shm_fd, g_shm_size) == -1)
         {
-            fprintf(stderr, "shm_guider: Failed to set size: %s\n", strerror(errno));
-            close(g_mount_shm_fd);
-            g_mount_shm_fd = -1;
+            fprintf(stderr, "shm_mount: Failed to set size: %s\n", strerror(errno));
+            close(shm_fd);
+            shm_unlink(PHD2_MOUNT_SHM_NAME);
             return NULL;
         }
 
-        g_mount_shm_owner = 1;
-    }
-    else
-    {
-        g_mount_shm_owner = 0;
-
-        struct stat sb;
-        if (fstat(g_mount_shm_fd, &sb) == -1)
-        {
-            fprintf(stderr, "shm_guider: Failed to stat mount SHM: %s\n", strerror(errno));
-            close(g_mount_shm_fd);
-            g_mount_shm_fd = -1;
-            return NULL;
-        }
-        g_mount_shm_size = sb.st_size;
+        g_shm_owner = 1;
     }
 
-    g_mount_shm_ptr = (EquipmentListSHM*)mmap(NULL, g_mount_shm_size, PROT_READ | PROT_WRITE, MAP_SHARED, g_mount_shm_fd, 0);
+    // Map the shared memory
+    void* ptr = mmap(NULL, g_shm_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
 
-    if (g_mount_shm_ptr == MAP_FAILED)
+    if (ptr == MAP_FAILED)
     {
-        fprintf(stderr, "shm_guider: Failed to map mount shared memory: %s\n", strerror(errno));
-        close(g_mount_shm_fd);
-        g_mount_shm_fd = -1;
-        g_mount_shm_ptr = NULL;
+        fprintf(stderr, "shm_mount: Failed to map shared memory: %s\n", strerror(errno));
+        close(shm_fd);
+        if (g_shm_owner)
+        {
+            shm_unlink(PHD2_MOUNT_SHM_NAME);
+        }
         return NULL;
     }
 
-    // Initialize structure if we created it
-    if (g_mount_shm_owner)
-    {
-        memset(g_mount_shm_ptr, 0, g_mount_shm_size);
-        g_mount_shm_ptr->version = PHD2_SHM_VERSION;
-        g_mount_shm_ptr->selected_index = INVALID_ITEM_INDEX;
+    g_shm_fd = shm_fd;
+    g_shm_ptr = (MountListSHM*)ptr;
 
-        fprintf(stderr, "shm_guider: Created and initialized mount shared memory\n");
+    // If we created it, initialize the structure
+    if (g_shm_owner)
+    {
+        memset(g_shm_ptr, 0, g_shm_size);
+        g_shm_ptr->version = PHD2_MOUNT_SHM_VERSION;
+        g_shm_ptr->num_mounts = 0;
+        g_shm_ptr->selected_mount_index = INVALID_MOUNT_INDEX;
+        g_shm_ptr->timestamp = (uint32_t)time(NULL);
+        g_shm_ptr->list_update_counter = 0;
+        g_shm_ptr->selected_change_counter = 0;
+        fprintf(stderr, "shm_mount: Created and initialized shared memory\n");
     }
     else
     {
-        fprintf(stderr, "shm_guider: Opened existing mount shared memory\n");
+        fprintf(stderr, "shm_mount: Opened existing shared memory\n");
     }
 
-    return g_mount_shm_ptr;
+    return g_shm_ptr;
 }
 
-void shm_mount_cleanup(EquipmentListSHM* shm, int unlink)
+void shm_mount_cleanup(MountListSHM* shm, int unlink)
 {
     if (shm == NULL)
+    {
         return;
-
-    if (shm == g_mount_shm_ptr)
-    {
-        if (g_mount_shm_ptr != NULL)
-        {
-            munmap(g_mount_shm_ptr, g_mount_shm_size);
-            g_mount_shm_ptr = NULL;
-        }
-
-        if (g_mount_shm_fd != -1)
-        {
-            close(g_mount_shm_fd);
-            g_mount_shm_fd = -1;
-        }
-
-        if (unlink && g_mount_shm_owner)
-        {
-            shm_unlink(PHD2_MOUNT_SHM_NAME);
-            fprintf(stderr, "shm_guider: Unlinked mount shared memory\n");
-        }
     }
+
+    if (g_shm_ptr != NULL && g_shm_size > 0)
+    {
+        munmap(g_shm_ptr, g_shm_size);
+        g_shm_ptr = NULL;
+    }
+
+    if (g_shm_fd >= 0)
+    {
+        close(g_shm_fd);
+        g_shm_fd = -1;
+    }
+
+    if (unlink && g_shm_owner)
+    {
+        shm_unlink(PHD2_MOUNT_SHM_NAME);
+        fprintf(stderr, "shm_mount: Unlinked shared memory\n");
+    }
+
+    g_shm_owner = 0;
+    g_shm_size = 0;
 }
 
-int shm_mount_update_list(EquipmentListSHM* shm, const char** mounts, uint32_t num_mounts)
+int shm_mount_update_list(MountListSHM* shm, const char** mounts, uint32_t num_mounts)
 {
     if (shm == NULL)
-        return -1;
-
-    if (num_mounts > MAX_ITEMS_SHM)
     {
-        fprintf(stderr, "shm_guider: Too many mounts (%u > %d)\n", num_mounts, MAX_ITEMS_SHM);
         return -1;
     }
 
-    shm->num_items = num_mounts;
+    if (num_mounts > MAX_MOUNTS_SHM)
+    {
+        fprintf(stderr, "shm_mount: Too many mounts (%u > %d)\n", num_mounts, MAX_MOUNTS_SHM);
+        return -1;
+    }
+
+    // Update the mount list
+    shm->num_mounts = num_mounts;
 
     for (uint32_t i = 0; i < num_mounts; i++)
     {
         if (mounts[i] == NULL)
         {
-            fprintf(stderr, "shm_guider: NULL mount name at index %u\n", i);
-            return -1;
+            continue;
         }
 
         size_t len = strlen(mounts[i]);
-        if (len >= MAX_ITEM_NAME_LEN)
+        if (len >= MAX_MOUNT_NAME_LEN)
         {
-            fprintf(stderr, "shm_guider: Mount name too long: %s\n", mounts[i]);
-            return -1;
+            fprintf(stderr, "shm_mount: Mount name too long: %s\n", mounts[i]);
+            len = MAX_MOUNT_NAME_LEN - 1;
         }
 
-        strncpy(shm->items[i].name, mounts[i], MAX_ITEM_NAME_LEN - 1);
-        shm->items[i].name[MAX_ITEM_NAME_LEN - 1] = '\0';
+        strncpy(shm->mounts[i].name, mounts[i], len);
+        shm->mounts[i].name[len] = '\0';
     }
 
+    // Clear remaining entries
+    for (uint32_t i = num_mounts; i < MAX_MOUNTS_SHM; i++)
+    {
+        shm->mounts[i].name[0] = '\0';
+    }
+
+    // If the previously selected mount is no longer in the list, deselect it
+    if (shm->selected_mount_index != INVALID_MOUNT_INDEX && shm->selected_mount_index >= num_mounts)
+    {
+        shm->selected_mount_index = INVALID_MOUNT_INDEX;
+    }
+
+    // Update metadata
     shm->timestamp = (uint32_t)time(NULL);
     shm->list_update_counter++;
 
-    shm_mount_signal_list_changed();
+    return 0;
+}
+
+int shm_mount_set_selected(MountListSHM* shm, uint32_t index)
+{
+    if (shm == NULL)
+    {
+        fprintf(stderr, "shm_mount_set_selected: ERROR - shm is NULL\n");
+        return -1;
+    }
+
+    fprintf(stderr, "shm_mount_set_selected: Setting mount index to %u (num_mounts=%u)\n", index, shm->num_mounts);
+
+    // Validate index
+    if (index != INVALID_MOUNT_INDEX && index >= shm->num_mounts)
+    {
+        fprintf(stderr, "shm_mount: Invalid mount index: %u (max: %u)\n", index, shm->num_mounts - 1);
+        return -1;
+    }
+
+    if (shm->selected_mount_index != index)
+    {
+        fprintf(stderr, "shm_mount_set_selected: Writing index %u to shared memory at %p\n", index, (void*)shm);
+        shm->selected_mount_index = index;
+        shm->selected_change_counter++;
+        shm->timestamp = (uint32_t)time(NULL);
+        fprintf(stderr, "shm_mount_set_selected: After write - selected_mount_index=%u\n", shm->selected_mount_index);
+    }
+    else
+    {
+        fprintf(stderr, "shm_mount_set_selected: Index unchanged (already %u)\n", index);
+    }
 
     return 0;
 }
 
-int shm_mount_set_selected(EquipmentListSHM* shm, uint32_t index)
+uint32_t shm_mount_get_selected(const MountListSHM* shm)
 {
     if (shm == NULL)
-        return -1;
-
-    if (index != INVALID_ITEM_INDEX && index >= shm->num_items)
     {
-        fprintf(stderr, "shm_guider: Invalid mount index: %u (max: %u)\n", index, shm->num_items - 1);
-        return -1;
+        fprintf(stderr, "shm_mount_get_selected: ERROR - shm is NULL\n");
+        return INVALID_MOUNT_INDEX;
     }
 
-    shm->selected_index = index;
-    shm->timestamp = (uint32_t)time(NULL);
-    shm->selected_change_counter++;
+    uint32_t result = shm->selected_mount_index;
+    fprintf(stderr, "shm_mount_get_selected: Reading from %p - result=%u (INVALID=%u)\n", (const void*)shm, result, INVALID_MOUNT_INDEX);
 
-    shm_mount_signal_selected_changed();
-
-    return 0;
+    return result;
 }
 
-uint32_t shm_mount_get_selected(const EquipmentListSHM* shm)
+int shm_mount_read_list(char mounts[][MAX_MOUNT_NAME_LEN], uint32_t max_mounts)
 {
-    if (shm == NULL)
-        return INVALID_ITEM_INDEX;
-
-    return shm->selected_index;
-}
-
-int shm_mount_read_list(char mounts[][MAX_ITEM_NAME_LEN], uint32_t max_mounts)
-{
-    const EquipmentListSHM* shm = shm_mount_get_readonly();
+    const MountListSHM* shm = shm_mount_get_readonly();
 
     if (shm == NULL)
     {
         return -1;
     }
 
-    uint32_t num_to_read = shm->num_items;
+    uint32_t num_to_read = shm->num_mounts;
     if (num_to_read > max_mounts)
     {
         num_to_read = max_mounts;
@@ -218,8 +254,8 @@ int shm_mount_read_list(char mounts[][MAX_ITEM_NAME_LEN], uint32_t max_mounts)
 
     for (uint32_t i = 0; i < num_to_read; i++)
     {
-        strncpy(mounts[i], shm->items[i].name, MAX_ITEM_NAME_LEN - 1);
-        mounts[i][MAX_ITEM_NAME_LEN - 1] = '\0';
+        strncpy(mounts[i], shm->mounts[i].name, MAX_MOUNT_NAME_LEN - 1);
+        mounts[i][MAX_MOUNT_NAME_LEN - 1] = '\0';
     }
 
     shm_mount_release_readonly(shm);
@@ -229,14 +265,15 @@ int shm_mount_read_list(char mounts[][MAX_ITEM_NAME_LEN], uint32_t max_mounts)
 
 int shm_mount_read_selected(uint32_t* selected_index)
 {
-    const EquipmentListSHM* shm = shm_mount_get_readonly();
+    const MountListSHM* shm = shm_mount_get_readonly();
 
     if (shm == NULL)
     {
         return -1;
     }
 
-    *selected_index = shm->selected_index;
+    *selected_index = shm->selected_mount_index;
+
     shm_mount_release_readonly(shm);
 
     return 0;
@@ -244,37 +281,98 @@ int shm_mount_read_selected(uint32_t* selected_index)
 
 int shm_mount_write_selected(uint32_t index)
 {
-    EquipmentListSHM* shm = shm_mount_init(0);
+    // Try to open existing shared memory for read-write
+    int shm_fd = shm_open(PHD2_MOUNT_SHM_NAME, O_RDWR, 0666);
 
-    if (shm == NULL)
+    if (shm_fd == -1)
     {
+        fprintf(stderr, "shm_mount: Failed to open shared memory for writing: %s\n", strerror(errno));
         return -1;
     }
 
-    return shm_mount_set_selected(shm, index);
-}
+    size_t shm_size = sizeof(MountListSHM);
 
-const EquipmentListSHM* shm_mount_get_readonly(void)
-{
-    if (g_mount_shm_ptr != NULL)
+    // Map read-write
+    void* ptr = mmap(NULL, shm_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+
+    if (ptr == MAP_FAILED)
     {
-        return g_mount_shm_ptr;
+        fprintf(stderr, "shm_mount: Failed to map shared memory for writing: %s\n", strerror(errno));
+        close(shm_fd);
+        return -1;
     }
 
-    EquipmentListSHM* shm = shm_mount_init(0);
+    MountListSHM* shm = (MountListSHM*)ptr;
 
-    return shm;
+    // Validate index
+    if (index != INVALID_MOUNT_INDEX && index >= shm->num_mounts)
+    {
+        fprintf(stderr, "shm_mount: Invalid mount index: %u (max: %u)\n", index, shm->num_mounts - 1);
+        munmap(shm, shm_size);
+        close(shm_fd);
+        return -1;
+    }
+
+    // Update selected mount
+    if (shm->selected_mount_index != index)
+    {
+        shm->selected_mount_index = index;
+        shm->selected_change_counter++;
+        shm->timestamp = (uint32_t)time(NULL);
+    }
+
+    munmap(shm, shm_size);
+    close(shm_fd);
+
+    return 0;
 }
 
-void shm_mount_release_readonly(const EquipmentListSHM* shm)
+const MountListSHM* shm_mount_get_readonly(void)
 {
-    // Read-only access, nothing to do
-    (void)shm;
+    // If already mapped in this process, return existing pointer
+    if (g_shm_ptr != NULL)
+    {
+        return g_shm_ptr;
+    }
+
+    // Try to open existing shared memory (read-only for external processes)
+    int shm_fd = shm_open(PHD2_MOUNT_SHM_NAME, O_RDONLY, 0666);
+
+    if (shm_fd == -1)
+    {
+        fprintf(stderr, "shm_mount: Failed to open shared memory for reading: %s\n", strerror(errno));
+        return NULL;
+    }
+
+    size_t shm_size = sizeof(MountListSHM);
+
+    // Map read-only
+    void* ptr = mmap(NULL, shm_size, PROT_READ, MAP_SHARED, shm_fd, 0);
+
+    if (ptr == MAP_FAILED)
+    {
+        fprintf(stderr, "shm_mount: Failed to map shared memory for reading: %s\n", strerror(errno));
+        close(shm_fd);
+        return NULL;
+    }
+
+    close(shm_fd);
+
+    return (const MountListSHM*)ptr;
+}
+
+void shm_mount_release_readonly(const MountListSHM* shm)
+{
+    // Only unmap if it's not the global pointer (i.e., it's a temporary mapping)
+    if (shm != NULL && shm != (const MountListSHM*)g_shm_ptr)
+    {
+        munmap((void*)shm, sizeof(MountListSHM));
+    }
 }
 
 void shm_mount_signal_list_changed(void)
 {
-    sem_t* sem = sem_open(PHD2_MOUNT_SEM_LIST_CHANGED, O_CREAT, 0666, 0);
+    sem_t* sem = sem_open(PHD2_MOUNT_SEM_LIST_CHANGED, 0);
     if (sem != SEM_FAILED)
     {
         sem_post(sem);
@@ -284,7 +382,7 @@ void shm_mount_signal_list_changed(void)
 
 void shm_mount_signal_selected_changed(void)
 {
-    sem_t* sem = sem_open(PHD2_MOUNT_SEM_SELECTED_CHANGED, O_CREAT, 0666, 0);
+    sem_t* sem = sem_open(PHD2_MOUNT_SEM_SELECTED_CHANGED, 0);
     if (sem != SEM_FAILED)
     {
         sem_post(sem);
@@ -300,11 +398,7 @@ int shm_mount_wait_list_changed(void)
         return -1;
     }
 
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    ts.tv_sec += 1;  // 1 second timeout
-
-    int result = sem_timedwait(sem, &ts);
+    int result = sem_wait(sem);
     sem_close(sem);
     return result;
 }
@@ -317,18 +411,14 @@ int shm_mount_wait_selected_changed(void)
         return -1;
     }
 
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    ts.tv_sec += 1;  // 1 second timeout
-
-    int result = sem_timedwait(sem, &ts);
+    int result = sem_wait(sem);
     sem_close(sem);
     return result;
 }
 
 void shm_mount_signal_client_request(void)
 {
-    sem_t* sem = sem_open(PHD2_MOUNT_SEM_CLIENT_REQUEST, O_CREAT, 0666, 0);
+    sem_t* sem = sem_open(PHD2_MOUNT_SEM_CLIENT_REQUEST, 0);
     if (sem != SEM_FAILED)
     {
         sem_post(sem);
@@ -344,6 +434,7 @@ int shm_mount_wait_client_request(void)
         return -1;
     }
 
+    // Use timed wait with 1 second timeout to allow thread to check for shutdown
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     ts.tv_sec += 1;  // 1 second timeout

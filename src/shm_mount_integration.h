@@ -66,13 +66,6 @@ public:
      * @return true on success, false on error
      */
     static bool UpdateMountList(const wxArrayString& mounts);
-    
-    /**
-     * Get the mount list from shared memory
-     * @param mounts Output array for mount names
-     * @return Number of mounts read
-     */
-    static int GetMountList(wxArrayString& mounts);
 
     /**
      * Set the selected mount by index
@@ -86,6 +79,13 @@ public:
      * @return Mount index, or -1 if none selected
      */
     static int GetSelectedMount(void);
+
+    /**
+     * Get the mount list from shared memory
+     * @param mounts Output array for mount names
+     * @return Number of mounts read
+     */
+    static int GetMountList(wxArrayString& mounts);
 
     /**
      * Check if a mount selection change has occurred

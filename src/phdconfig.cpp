@@ -413,6 +413,9 @@ bool PhdConfig::CreateProfile(const wxString& name)
 
     Profile.m_pConfig->Write(wxString::Format("/profile/%d/name", id), name);
 
+    // Set default equipment selections for new profiles
+    Profile.m_pConfig->Write(wxString::Format("/profile/%d/scope/LastMenuChoice", id), _T("On-camera"));
+
     EvtServer.NotifyConfigurationChange();
 
     return false;

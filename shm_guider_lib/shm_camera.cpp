@@ -3,6 +3,7 @@
  *  PHD Guiding
  *
  *  POSIX Shared Memory implementation for camera list (pure C, no wxWidgets)
+ *  This file contains camera-specific implementations
  *
  */
 
@@ -131,7 +132,7 @@ void shm_camera_cleanup(CameraListSHM* shm, int unlink)
 
 int shm_camera_update_list(CameraListSHM* shm, const char** cameras, uint32_t num_cameras)
 {
-    if (shm == NULL || g_shm_ptr == NULL)
+    if (shm == NULL)
     {
         return -1;
     }
@@ -157,50 +158,50 @@ int shm_camera_update_list(CameraListSHM* shm, const char** cameras, uint32_t nu
             len = MAX_CAMERA_NAME_LEN - 1;
         }
 
-        strncpy(g_shm_ptr->cameras[i].name, cameras[i], len);
-        g_shm_ptr->cameras[i].name[len] = '\0';
+        strncpy(shm->cameras[i].name, cameras[i], len);
+        shm->cameras[i].name[len] = '\0';
     }
 
     // Clear remaining entries
     for (uint32_t i = num_cameras; i < MAX_CAMERAS_SHM; i++)
     {
-        g_shm_ptr->cameras[i].name[0] = '\0';
+        shm->cameras[i].name[0] = '\0';
     }
 
     // If the previously selected camera is no longer in the list, deselect it
-    if (g_shm_ptr->selected_camera_index != INVALID_CAMERA_INDEX && g_shm_ptr->selected_camera_index >= num_cameras)
+    if (shm->selected_camera_index != INVALID_CAMERA_INDEX && shm->selected_camera_index >= num_cameras)
     {
-        g_shm_ptr->selected_camera_index = INVALID_CAMERA_INDEX;
+        shm->selected_camera_index = INVALID_CAMERA_INDEX;
     }
 
     // Update metadata
-    g_shm_ptr->num_cameras = num_cameras;
-    g_shm_ptr->timestamp = (uint32_t)time(NULL);
-    g_shm_ptr->list_update_counter++;
+    shm->num_cameras = num_cameras;
+    shm->timestamp = (uint32_t)time(NULL);
+    shm->list_update_counter++;
 
     return 0;
 }
 
 int shm_camera_set_selected(CameraListSHM* shm, uint32_t index)
 {
-    if (shm == NULL || g_shm_ptr == NULL)
+    if (shm == NULL)
     {
         return -1;
     }
 
     // Validate index
-    if (index != INVALID_CAMERA_INDEX && index >= g_shm_ptr->num_cameras)
+    if (index != INVALID_CAMERA_INDEX && index >= shm->num_cameras)
     {
-        fprintf(stderr, "shm_camera: Invalid camera index: %u (max: %u)\n", index, g_shm_ptr->num_cameras - 1);
+        fprintf(stderr, "shm_camera: Invalid camera index: %u (max: %u)\n", index, shm->num_cameras - 1);
         return -1;
     }
 
-    if (g_shm_ptr->selected_camera_index != index)
+    if (shm->selected_camera_index != index)
     {
-        g_shm_ptr->selected_camera_index = index;
-        g_shm_ptr->selected_change_counter++;
-        g_shm_ptr->timestamp = (uint32_t)time(NULL);
-        
+        shm->selected_camera_index = index;
+        shm->selected_change_counter++;
+        shm->timestamp = (uint32_t)time(NULL);
+
         // Don't clear selected_camera_id here - let PHD2 handle that
         // when it updates instances for the new camera
     }
@@ -210,12 +211,12 @@ int shm_camera_set_selected(CameraListSHM* shm, uint32_t index)
 
 uint32_t shm_camera_get_selected(const CameraListSHM* shm)
 {
-    if (shm == NULL || g_shm_ptr == NULL)
+    if (shm == NULL)
     {
         return INVALID_CAMERA_INDEX;
     }
 
-    return g_shm_ptr->selected_camera_index;
+    return shm->selected_camera_index;
 }
 
 int shm_camera_read_list(char cameras[][MAX_CAMERA_NAME_LEN], uint32_t max_cameras)

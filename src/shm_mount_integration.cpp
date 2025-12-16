@@ -39,13 +39,13 @@
 
 #include "phd.h"
 #include "shm_mount_integration.h"
-#include "shm_guider.h"
+#include "shm_mount.h"
 
 // Static member initialization
 unsigned int MountSHMManager::s_last_change_counter = 0;
 
 // Global pointer to shared memory
-static EquipmentListSHM* g_mount_shm = NULL;
+static MountListSHM* g_mount_shm = NULL;
 
 bool MountSHMManager::Initialize(void)
 {
@@ -85,40 +85,26 @@ bool MountSHMManager::UpdateMountList(const wxArrayString& mounts)
 
     // Convert wxArrayString to C-style array
     const char** mount_names = new const char*[mounts.Count()];
-
     for (size_t i = 0; i < mounts.Count(); i++)
     {
         mount_names[i] = mounts[i].c_str();
     }
 
-    if (shm_mount_update_list(g_mount_shm, mount_names, mounts.Count()) != 0)
-    {
-        Debug.Write("MountSHMManager: Failed to update mount list\n");
-        delete[] mount_names;
-        return false;
-    }
+    int result = shm_mount_update_list(g_mount_shm, mount_names, mounts.Count());
 
     delete[] mount_names;
 
+    if (result != 0)
+    {
+        Debug.Write("MountSHMManager: Failed to update mount list\n");
+        return false;
+    }
+
+    // Signal all waiting clients that the list has changed
+    shm_mount_signal_list_changed();
+
     Debug.Write(wxString::Format("MountSHMManager: Updated mount list with %zu mounts\n", mounts.Count()));
     return true;
-}
-
-int MountSHMManager::GetMountList(wxArrayString& mounts)
-{
-    if (g_mount_shm == NULL)
-    {
-        return 0;
-    }
-
-    mounts.Clear();
-
-    for (uint32_t i = 0; i < g_mount_shm->num_items; i++)
-    {
-        mounts.Add(wxString(g_mount_shm->items[i].name));
-    }
-
-    return (int)g_mount_shm->num_items;
 }
 
 bool MountSHMManager::SetSelectedMount(int index)
@@ -129,13 +115,18 @@ bool MountSHMManager::SetSelectedMount(int index)
         return false;
     }
 
-    uint32_t shm_index = (index < 0) ? INVALID_ITEM_INDEX : (uint32_t)index;
+    uint32_t shm_index = (index < 0) ? INVALID_MOUNT_INDEX : (uint32_t)index;
 
-    if (shm_mount_set_selected(g_mount_shm, shm_index) != 0)
+    int result = shm_mount_set_selected(g_mount_shm, shm_index);
+
+    if (result != 0)
     {
         Debug.Write(wxString::Format("MountSHMManager: Failed to set selected mount: %d\n", index));
         return false;
     }
+
+    // Signal all waiting clients that the selection has changed
+    shm_mount_signal_selected_changed();
 
     Debug.Write(wxString::Format("MountSHMManager: Selected mount index: %d\n", index));
     return true;
@@ -149,13 +140,29 @@ int MountSHMManager::GetSelectedMount(void)
     }
 
     uint32_t index = shm_mount_get_selected(g_mount_shm);
-
-    if (index == INVALID_ITEM_INDEX)
+    if (index == INVALID_MOUNT_INDEX)
     {
         return -1;
     }
 
     return (int)index;
+}
+
+int MountSHMManager::GetMountList(wxArrayString& mounts)
+{
+    if (g_mount_shm == NULL)
+    {
+        return 0;
+    }
+
+    mounts.Clear();
+
+    for (uint32_t i = 0; i < g_mount_shm->num_mounts; i++)
+    {
+        mounts.Add(wxString(g_mount_shm->mounts[i].name));
+    }
+
+    return (int)g_mount_shm->num_mounts;
 }
 
 bool MountSHMManager::HasSelectionChanged(void)
@@ -165,8 +172,12 @@ bool MountSHMManager::HasSelectionChanged(void)
         return false;
     }
 
-    bool changed = (g_mount_shm->selected_change_counter != s_last_change_counter);
-    s_last_change_counter = g_mount_shm->selected_change_counter;
+    uint32_t current_counter = g_mount_shm->selected_change_counter;
+    if (current_counter != s_last_change_counter)
+    {
+        s_last_change_counter = current_counter;
+        return true;
+    }
 
-    return changed;
+    return false;
 }

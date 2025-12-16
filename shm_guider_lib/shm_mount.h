@@ -33,8 +33,8 @@
  *  shm_mount.h
  *  PHD Guiding
  *
- *  POSIX Shared Memory interface for guider equipment (camera, mount, etc)
- *  Allows other processes to read available equipment and change selections
+ *  POSIX Shared Memory interface for mount list
+ *  Allows other processes to read available mounts and change selected mount
  *
  */
 
@@ -43,19 +43,14 @@
 
 #include <stdint.h>
 
-// Maximum number of items that can be shared
-#define MAX_ITEMS_SHM 64
+// Maximum number of mounts that can be shared
+#define MAX_MOUNTS_SHM 64
+
 // Maximum length of item name
-#define MAX_ITEM_NAME_LEN 256
+#define MAX_MOUNT_NAME_LEN 256
 
-// Shared memory segment names
-#define PHD2_CAMERA_SHM_NAME "/phd2_cameras"
+// Shared memory segment name
 #define PHD2_MOUNT_SHM_NAME "/phd2_mounts"
-
-// POSIX semaphore names for camera events
-#define PHD2_CAMERA_SEM_LIST_CHANGED "/phd2_cam_list_changed"
-#define PHD2_CAMERA_SEM_SELECTED_CHANGED "/phd2_cam_selected_changed"
-#define PHD2_CAMERA_SEM_CLIENT_REQUEST "/phd2_cam_client_request"
 
 // POSIX semaphore names for mount events
 #define PHD2_MOUNT_SEM_LIST_CHANGED "/phd2_mount_list_changed"
@@ -63,9 +58,10 @@
 #define PHD2_MOUNT_SEM_CLIENT_REQUEST "/phd2_mount_client_request"
 
 // Version for compatibility checking
-#define PHD2_SHM_VERSION 1
+#define PHD2_MOUNT_SHM_VERSION 1
+
 // Invalid item index
-#define INVALID_ITEM_INDEX 0xFFFFFFFF
+#define INVALID_MOUNT_INDEX 0xFFFFFFFF
 
 #pragma pack(push, 1)
 
@@ -73,8 +69,8 @@
  * Structure representing a single equipment entry in shared memory
  */
 typedef struct {
-    char name[MAX_ITEM_NAME_LEN];  // Equipment name/identifier
-} EquipmentEntry;
+    char name[MAX_MOUNT_NAME_LEN];  // Equipment name/identifier
+} MountEntry;
 
 /**
  * Main shared memory structure for camera list
@@ -82,14 +78,14 @@ typedef struct {
  */
 typedef struct {
     uint32_t version;                   // Version of this structure
-    uint32_t num_items;                 // Number of items currently available
-    uint32_t selected_index;            // Index of currently selected item (INVALID_ITEM_INDEX = none)
+    uint32_t num_mounts;                 // Number of mounts currently available
+    uint32_t selected_mount_index;            // Index of currently selected item (INVALID_MOUNT_INDEX = none)
     uint32_t timestamp;                 // Timestamp of last update (seconds)
     uint32_t list_update_counter;       // Counter incremented when list changes
     uint32_t selected_change_counter;   // Counter incremented when selection changes
     uint8_t reserved[40];               // Reserved for future expansion
-    EquipmentEntry items[MAX_ITEMS_SHM];
-} EquipmentListSHM;
+    MountEntry mounts[MAX_MOUNTS_SHM];
+} MountListSHM;
 
 #pragma pack(pop)
 
@@ -97,15 +93,13 @@ typedef struct {
 extern "C" {
 #endif
 
-// ===== MOUNT-SPECIFIC FUNCTIONS =====
-
 /**
  * Initialize shared memory for mount list
  * Should be called by PHD2 process to create/open SHM
  * @param create_if_missing If true, create SHM if it doesn't exist
  * @return Pointer to shared memory structure, or NULL on error
  */
-EquipmentListSHM* shm_mount_init(int create_if_missing);
+MountListSHM* shm_mount_init(int create_if_missing);
 
 /**
  * Cleanup mount shared memory resources
@@ -113,7 +107,7 @@ EquipmentListSHM* shm_mount_init(int create_if_missing);
  * @param shm Pointer to shared memory structure
  * @param unlink If true, unlink (delete) the shared memory
  */
-void shm_mount_cleanup(EquipmentListSHM* shm, int unlink);
+void shm_mount_cleanup(MountListSHM* shm, int unlink);
 
 /**
  * Update the mount list in shared memory
@@ -122,22 +116,22 @@ void shm_mount_cleanup(EquipmentListSHM* shm, int unlink);
  * @param num_mounts Number of mounts in array
  * @return 0 on success, -1 on error
  */
-int shm_mount_update_list(EquipmentListSHM* shm, const char** mounts, uint32_t num_mounts);
+int shm_mount_update_list(MountListSHM* shm, const char** mounts, uint32_t num_mounts);
 
 /**
  * Set the selected mount index
  * @param shm Pointer to shared memory structure
- * @param index Index of mount to select (INVALID_ITEM_INDEX to deselect)
+ * @param index Index of mount to select (INVALID_MOUNT_INDEX to deselect)
  * @return 0 on success, -1 on error (invalid index)
  */
-int shm_mount_set_selected(EquipmentListSHM* shm, uint32_t index);
+int shm_mount_set_selected(MountListSHM* shm, uint32_t index);
 
 /**
  * Get the selected mount index
  * @param shm Pointer to shared memory structure
- * @return Selected mount index, or INVALID_ITEM_INDEX if none selected
+ * @return Selected mount index, or INVALID_MOUNT_INDEX if none selected
  */
-uint32_t shm_mount_get_selected(const EquipmentListSHM* shm);
+uint32_t shm_mount_get_selected(const MountListSHM* shm);
 
 /**
  * Read mount list from shared memory (for external processes)
@@ -145,7 +139,7 @@ uint32_t shm_mount_get_selected(const EquipmentListSHM* shm);
  * @param max_mounts Maximum number of mounts to read
  * @return Number of mounts read, or -1 on error
  */
-int shm_mount_read_list(char mounts[][MAX_ITEM_NAME_LEN], uint32_t max_mounts);
+int shm_mount_read_list(char mounts[][MAX_MOUNT_NAME_LEN], uint32_t max_mounts);
 
 /**
  * Read selected mount index from shared memory (for external processes)
@@ -165,42 +159,48 @@ int shm_mount_write_selected(uint32_t index);
  * Get the shared memory structure for read-only access
  * @return Pointer to shared memory structure, or NULL on error
  */
-const EquipmentListSHM* shm_mount_get_readonly(void);
+const MountListSHM* shm_mount_get_readonly(void);
 
 /**
  * Release read-only access to shared memory
  */
-void shm_mount_release_readonly(const EquipmentListSHM* shm);
+void shm_mount_release_readonly(const MountListSHM* shm);
 
 /**
  * Signal that mount list has changed (called by PHD2)
+ * Notifies all waiting clients
  */
 void shm_mount_signal_list_changed(void);
 
 /**
  * Signal that selected mount has changed (called by PHD2)
+ * Notifies all waiting clients
  */
 void shm_mount_signal_selected_changed(void);
 
 /**
  * Wait for mount list change notification (called by clients)
+ * Blocks until list changes
  * @return 0 on success, -1 on error
  */
 int shm_mount_wait_list_changed(void);
 
 /**
  * Wait for selected mount change notification (called by clients)
+ * Blocks until selected camera changes
  * @return 0 on success, -1 on error
  */
 int shm_mount_wait_selected_changed(void);
 
 /**
  * Signal PHD2 that client has requested a mount change (called by clients)
+ * Use this after writing a new selected mount index to SHM
  */
 void shm_mount_signal_client_request(void);
 
 /**
  * Wait for client mount request (called by PHD2)
+ * Blocks until a client signals a request
  * @return 0 on success, -1 on error
  */
 int shm_mount_wait_client_request(void);

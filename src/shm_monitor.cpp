@@ -105,6 +105,15 @@ static void* shm_monitor_thread_func(void* arg)
             {
                 Debug.Write(wxString::Format("SHM Monitor: Mount index changed to %d\n", mount_index));
                 
+                // Queue event to gear dialog if open
+                if (pFrame && pFrame->pGearDialog)
+                {
+                    wxThreadEvent evt(wxEVT_THREAD);
+                    evt.SetInt(mount_index);
+                    evt.SetString(wxT("mount"));
+                    wxQueueEvent(pFrame->pGearDialog, evt.Clone());
+                }
+                
                 // Save mount selection to config for persistence (works in headless and GUI modes)
                 wxArrayString mount_names;
                 MountSHMManager::GetMountList(mount_names);

@@ -45,16 +45,21 @@
 
 // Maximum number of cameras that can be shared
 #define MAX_CAMERAS_SHM 64
+
 // Maximum length of camera name
 #define MAX_CAMERA_NAME_LEN 256
+
 // Shared memory segment name
 #define PHD2_CAMERA_SHM_NAME "/phd2_cameras"
+
 // POSIX semaphore names for event signaling
 #define PHD2_CAMERA_SEM_LIST_CHANGED "/phd2_cam_list_changed"
 #define PHD2_CAMERA_SEM_SELECTED_CHANGED "/phd2_cam_selected_changed"
 #define PHD2_CAMERA_SEM_CLIENT_REQUEST "/phd2_cam_client_request"
+
 // Version for compatibility checking
 #define PHD2_CAMERA_SHM_VERSION 1
+
 // Maximum number of camera instances for a single camera type
 #define MAX_CAMERA_INSTANCES 64
 
