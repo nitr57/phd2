@@ -1193,14 +1193,14 @@ bool GearDialog::DoConnectCamera(bool autoReconnecting)
 
         Debug.Write(wxString::Format("Connecting to camera [%s] id = [%s]\n", newCam, cameraId));
 
-        int profileBinning = m_pCamera->Binning;
-        
+        int profileBinning = m_pCamera->GetBinning();
+
         // Check for bitdepth config changes from SHM before connecting
         // This applies to cameras that support bitdepth configuration
         int new_bitdepth;
         if (CameraConfigManager::GetUpdatedOption("bitdepth", &new_bitdepth)) {
             Debug.Write(wxString::Format("Camera config: bitdepth updated to %d\n", new_bitdepth));
-            
+
             // Apply only to the selected camera
             if (newCam == _T("ToupTek Camera") || newCam == _T("Omegon Pro Camera")) {
                 pConfig->Profile.SetInt("/camera/ToupTek/bpp", new_bitdepth);
@@ -1214,7 +1214,7 @@ bool GearDialog::DoConnectCamera(bool autoReconnecting)
                 pConfig->Profile.SetInt("/camera/ZWO/bpp", new_bitdepth);
             }
         }
-        
+
         if (GuideCamera::ConnectCamera(m_pCamera, cameraId))
         {
             throw THROW_INFO("DoConnectCamera: connect failed");
@@ -1285,9 +1285,11 @@ bool GearDialog::DoConnectCamera(bool autoReconnecting)
             m_pCamera->SetCameraGain(defaultGain);
         }
 
-        // See if the profile was created with a binning level that isn't supported by the camera (user mistake) - if so, reset
-        // binning to 1 Must be done here because orig binning level is not saved
-        if (profileBinning > m_pCamera->MaxBinning)
+        // See if the profile was created with a binning level that isn't supported by
+        // the camera (user mistake) - if so, reset binning to 1. Must be done here
+        // because orig binning level is not saved
+        auto choices = m_pCamera->GetBinningChoices();
+        if (choices.find(profileBinning) == choices.end())
         {
             int rslt;
             if (TheScope())
@@ -1295,7 +1297,7 @@ bool GearDialog::DoConnectCamera(bool autoReconnecting)
                 rslt = TheScope()->GetCalibrationDuration() / profileBinning;
                 TheScope()->SetCalibrationDuration(rslt);
             }
-            m_pCamera->SetBinning(1);
+            m_pCamera->SetBinning(1, 1);
             Debug.Write(wxString::Format("CamConfigDlg correcting bogus user binning value from %d to 1\n", profileBinning));
         }
 
@@ -1305,7 +1307,8 @@ bool GearDialog::DoConnectCamera(bool autoReconnecting)
         m_cameraUpdated = true;
 
         Debug.AddLine("Connected Camera: " + m_pCamera->Name);
-        Debug.Write(wxString::Format("FrameSize=(%d,%d)\n", m_pCamera->FrameSize.x, m_pCamera->FrameSize.y));
+        auto frameSize = m_pCamera->GetFrameSize();
+        Debug.Write(wxString::Format("FrameSize=(%d,%d)\n", frameSize.x, frameSize.y));
         Debug.Write(wxString::Format("PixelSize=%.2f\n", m_pCamera->GetCameraPixelSize()));
         Debug.Write(wxString::Format("BitsPerPixel=%u\n", m_pCamera->BitsPerPixel()));
         Debug.Write(wxString::Format("HasGainControl=%d\n", m_pCamera->HasGainControl));

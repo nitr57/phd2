@@ -71,7 +71,6 @@ class Camera_ZWO : public GuideCamera
     int m_minGain;
     int m_maxGain;
     int m_defaultGainPct;
-    bool m_isColor;
     double m_devicePixelSize;
 
 public:
@@ -80,7 +79,7 @@ public:
 
     bool CanSelectCamera() const override { return true; }
     bool EnumCameras(wxArrayString& names, wxArrayString& ids) override;
-    bool Capture(int duration, usImage& img, int options, const wxRect& subframe) override;
+    bool Capture(usImage& img, const CaptureParams& captureParams) override;
     bool Connect(const wxString& camId) override;
     bool Disconnect() override;
 
@@ -452,8 +451,8 @@ bool Camera_ZWO::Connect(const wxString& camId)
     m_cameraId = selected;
     Connected = true;
     Name = info.Name;
-    m_isColor = info.IsColorCam != ASI_FALSE;
-    Debug.Write(wxString::Format("ZWO: IsColorCam = %d\n", m_isColor));
+    HasBayer = info.IsColorCam != ASI_FALSE;
+    Debug.Write(wxString::Format("ZWO: IsColorCam = %d\n", HasBayer));
 
     if (m_mode == CM_SNAP && info.MechanicalShutter != ASI_FALSE)
     {
@@ -470,16 +469,16 @@ bool Camera_ZWO::Connect(const wxString& camId)
         if (info.SupportedBins[i] > maxBin)
             maxBin = info.SupportedBins[i];
     }
-    MaxBinning = maxBin;
+    MaxHwBinning = maxBin;
 
-    if (Binning > MaxBinning)
-        Binning = MaxBinning;
+    if (HwBinning > MaxHwBinning)
+        HwBinning = MaxHwBinning;
 
     m_maxSize.x = info.MaxWidth;
     m_maxSize.y = info.MaxHeight;
 
-    FrameSize = BinnedFrameSize(Binning);
-    m_prevBinning = Binning;
+    FrameSize = BinnedFrameSize(HwBinning);
+    m_prevBinning = HwBinning;
 
     ::free(m_buffer);
     m_buffer_size = info.MaxWidth * info.MaxHeight * (m_bpp == 8 ? 1 : 2);
@@ -570,7 +569,7 @@ bool Camera_ZWO::Connect(const wxString& camId)
     Debug.Write(wxString::Format("ZWO: frame (%d,%d)+(%d,%d)\n", m_frame.x, m_frame.y, m_frame.width, m_frame.height));
 
     ASISetStartPos(m_cameraId, m_frame.GetLeft(), m_frame.GetTop());
-    ASISetROIFormat(m_cameraId, m_frame.GetWidth(), m_frame.GetHeight(), Binning, m_bpp == 8 ? ASI_IMG_RAW8 : ASI_IMG_RAW16);
+    ASISetROIFormat(m_cameraId, m_frame.GetWidth(), m_frame.GetHeight(), HwBinning, m_bpp == 8 ? ASI_IMG_RAW8 : ASI_IMG_RAW16);
 
     ASIStopExposure(m_cameraId);
     ASIStopVideoCapture(m_cameraId);
@@ -620,7 +619,7 @@ bool Camera_ZWO::GetDevicePixelSize(double *devPixelSize)
 
 wxSize Camera_ZWO::DarkFrameSize()
 {
-    return BinnedFrameSize(Binning);
+    return BinnedFrameSize(HwBinning);
 }
 
 int Camera_ZWO::GetDefaultCameraGain()
@@ -759,19 +758,23 @@ inline static void copy_rect_16bit(usImage& img, const unsigned char *buffer, co
     }
 }
 
-bool Camera_ZWO::Capture(int duration, usImage& img, int options, const wxRect& subframe)
+bool Camera_ZWO::Capture(usImage& img, const CaptureParams& captureParams)
 {
+    int duration = captureParams.duration;
+    int options = captureParams.captureOptions;
+    const wxRect& subframe = captureParams.subframe;
+
     bool binning_change = false;
-    if (Binning != m_prevBinning)
+    if (HwBinning != m_prevBinning)
     {
-        m_prevBinning = Binning;
+        m_prevBinning = HwBinning;
         binning_change = true;
     }
 
     wxRect const limit_frame = options & CAPTURE_IGNORE_FRAME_LIMIT ? wxRect() : LimitFrame;
 
     // always update the frame size in case the limit frame or binning changed
-    wxSize const binned_frame_size(BinnedFrameSize(Binning));
+    wxSize const binned_frame_size(BinnedFrameSize(HwBinning));
     if (limit_frame.IsEmpty())
         FrameSize = binned_frame_size;
     else
@@ -844,11 +847,11 @@ bool Camera_ZWO::Capture(int duration, usImage& img, int options, const wxRect& 
     {
         StopCapture();
 
-        ASI_ERROR_CODE status = ASISetROIFormat(m_cameraId, frame.GetWidth(), frame.GetHeight(), Binning,
+        ASI_ERROR_CODE status = ASISetROIFormat(m_cameraId, frame.GetWidth(), frame.GetHeight(), HwBinning,
                                                 m_bpp == 8 ? ASI_IMG_RAW8 : ASI_IMG_RAW16);
         if (status != ASI_SUCCESS)
-            Debug.Write(wxString::Format("ZWO: setImageFormat(%d,%d,%hu) => %d\n", frame.GetWidth(), frame.GetHeight(), Binning,
-                                         status));
+            Debug.Write(wxString::Format("ZWO: setImageFormat(%d,%d,%hu) => %d\n", frame.GetWidth(), frame.GetHeight(),
+                                         HwBinning, status));
     }
 
     if (pos_change)
@@ -1015,7 +1018,7 @@ bool Camera_ZWO::Capture(int duration, usImage& img, int options, const wxRect& 
 
     if (options & CAPTURE_SUBTRACT_DARK)
         SubtractDark(img);
-    if (m_isColor && Binning == 1 && (options & CAPTURE_RECON))
+    if ((options & CAPTURE_RECON) && HasBayer && captureParams.CombinedBinning() == 1)
         QuickLRecon(img);
 
     return false;
